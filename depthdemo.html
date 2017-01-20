@@ -139,6 +139,13 @@ function frameLoop() {
     
     // Read it back to buffer.
     readPixels();
+    
+    // TODO: process pixels.
+    
+    // Put read and processed pixels to 2D canvas.
+    // Note: This is just one of scenarios for the demo. You can directly
+    // bind video to 2D canvas without using WebGL as intermediate step.
+    putReadPixelsTo2DCanvas();
   }
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
   gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
@@ -165,8 +172,9 @@ function readPixels() {
   }
   gl.readPixels(0, 0, video.width, video.height, read_format, gl.FLOAT, read_buffer);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  
-  // Display in 2D canvas.
+}
+
+function putReadPixelsTo2DCanvas() {
   var img = context_2d.getImageData(0,0,video.width, video.height);
   var data = img.data;
   var stride = (read_format === gl.RED) ? 1 : 4;
