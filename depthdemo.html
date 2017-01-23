@@ -23,8 +23,12 @@
 function GL(canvasId) {
   var canvas = document.getElementById(canvasId);
   var gl = canvas.getContext("webgl2");
-  if (!gl)
+  if (gl) {
+    // The extension tells us if we can use single component R32F texture format.
+    gl.color_buffer_float_ext = gl.getExtension('EXT_color_buffer_float');
+  } else {
     gl = canvas.getContext("webgl");
+  }
 
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -58,8 +62,8 @@ function GL(canvasId) {
 
   var depth_texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, depth_texture);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T,   gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S,   gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 
@@ -68,8 +72,6 @@ function GL(canvasId) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, depth_texture, 0);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-  gl.color_buffer_float_ext = gl.getExtension('EXT_color_buffer_float');
 
   gl.vertex_buffer = vertex_buffer;
   gl.vertex_location = vertex_location;
@@ -156,13 +158,11 @@ function frameLoop() {
 }
 
 function readPixels() {
+  // Bind the framebuffer the texture is color-attached to.
   gl.bindFramebuffer(gl.FRAMEBUFFER, gl.framebuffer);
   
   if (!read_buffer) {
     read_format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
-    console.log("IMPLEMENTATION_COLOR_READ_FORMAT:0x" + read_format.toString(16) +
-                ", IMPLEMENTATION_COLOR_READ_TYPE:0x" +
-                gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE).toString(16));
     if (read_format == gl.RED && gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) == gl.FLOAT) {
       read_buffer = new Float32Array(video.width * video.height);
     } else {
@@ -175,7 +175,7 @@ function readPixels() {
 }
 
 function putReadPixelsTo2DCanvas() {
-  var img = context_2d.getImageData(0,0,video.width, video.height);
+  var img = context_2d.getImageData(0, 0, video.width, video.height);
   var data = img.data;
   var stride = (read_format === gl.RED) ? 1 : 4;
   var j = 0;
