@@ -39,7 +39,7 @@ function GL(canvasId) {
   gl.compileShader(vertex_shader);
 
   var pixel_shader = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(pixel_shader, "precision mediump float;uniform sampler2D s;varying vec2 t;void main(){gl_FragColor=texture2D(s,t);}");
+  gl.shaderSource(pixel_shader, "precision mediump float;uniform sampler2D s;varying vec2 t;void main(){vec4 tex=texture2D(s,t);gl_FragColor=vec4(tex.r, tex.g, tex.b, tex.a);}");
   gl.compileShader(pixel_shader);
 
   var program  = gl.createProgram();
