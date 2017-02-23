@@ -28,6 +28,7 @@ function GL(canvasId) {
     gl.color_buffer_float_ext = gl.getExtension('EXT_color_buffer_float');
   } else {
     gl = canvas.getContext("webgl");
+    gl.getExtension("OES_texture_float");
   }
 
   gl.enable(gl.BLEND);
@@ -39,7 +40,7 @@ function GL(canvasId) {
   gl.compileShader(vertex_shader);
 
   var pixel_shader = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(pixel_shader, "precision mediump float;uniform sampler2D s;varying vec2 t;void main(){vec4 tex=texture2D(s,t);gl_FragColor=vec4(tex.r, tex.g, tex.b, tex.a);}");
+  gl.shaderSource(pixel_shader, "precision mediump float;uniform sampler2D s;varying vec2 t;void main(){vec4 tex=texture2D(s,t);gl_FragColor=vec4(tex.r, tex.r, tex.r, tex.a);}");
   gl.compileShader(pixel_shader);
 
   var program  = gl.createProgram();
@@ -81,7 +82,7 @@ function GL(canvasId) {
   return gl;
 }
 
-function getConstraintsForDepthDevice() {
+function getDepthDeviceLabelBasedConstraints() {
   return new Promise(function(resolve, reject) {
     navigator.mediaDevices.enumerateDevices()
     .then(function(devices) {
@@ -93,26 +94,47 @@ function getConstraintsForDepthDevice() {
         if (devices[i].label.indexOf("RealSense") != -1 && devices[i].kind === 'videoinput')
           return resolve({video:{deviceId: {exact: devices[i].deviceId}}});
       }
-      alert("No depth capture device found");
       return reject("No depth capture device found");
     })
   });
 }
 
+function getDepthVideoKindStream() {
+  var constraints = {
+    video:{
+      videoKind: {exact:"depth"},
+      // R200 related hack to prefer depth (width = 628) to IR (width = 641)
+      // stream. Seems harmless with other devices.
+      width: {ideal:628}
+    }
+  }
+  return navigator.mediaDevices.getUserMedia(constraints);
+}
+
 function getDepthStream() {
   return new Promise(function(resolve, reject) {
-    getConstraintsForDepthDevice()
-    .then(function(constraints) {
-      return navigator.mediaDevices.getUserMedia(constraints);
-    }).then(function(stream) {
+    getDepthVideoKindStream()
+    .then(function(stream) {
       return resolve(stream);
-    });
+    }, function() {
+      // Fallback to use label.
+      getDepthDeviceLabelBasedConstraints()
+      .then(function(constraints) {
+        return navigator.mediaDevices.getUserMedia(constraints);
+      }).then(function(stream) {
+        return resolve(stream);
+      }).catch(function(error) {
+        alert(error);
+        return reject("error getting the stream");
+      });
+    })
   });
 }
 
 var gl;
 var video_frame_available = false;
 var read_buffer;
+
 var read_format;
 var canvas_2d = document.getElementById("canvas2D");
 var context_2d = canvas_2d.getContext("2d");
@@ -143,7 +165,6 @@ function frameLoop() {
     readPixels();
     
     // TODO: process pixels.
-    
     // Put read and processed pixels to 2D canvas.
     // Note: This is just one of scenarios for the demo. You can directly
     // bind video to 2D canvas without using WebGL as intermediate step.
@@ -224,7 +245,7 @@ function allDevicesEnumerated(device_infos) {
     select_device.value = selected;
   } else if (!selected) {
     // If no other device is selected, set the initial selection to depth device.
-    getConstraintsForDepthDevice().then(function(constraints) {
+    getDepthDeviceLabelBasedConstraints().then(function(constraints) {
       select_device.value = constraints.video.deviceId.exact;
     }).catch(function(error) {
       console.log("Set initial selection error:" + error);
