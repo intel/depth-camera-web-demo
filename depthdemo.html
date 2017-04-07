@@ -3,6 +3,10 @@
 </head>
 <body onload="onLoad()">
   <h2>HTML5 Depth Capture Demo</h2>
+    <div id="errormessages" style="color: red; font-size: 150%;">
+    <!-- Print error messages here. -->
+  </div>
+
   <div class="select">
     <label for="selectVideoDevice">Video capture device used for depth stream: </label><select id="selectVideoDevice"></select>
   </div>
@@ -16,7 +20,19 @@
   </div>
 </body>
 
+<script type="text/javascript" src="depth-camera.js"></script>
 <script type="text/javascript">
+
+function showErrorToUser(message) {
+  var div = document.getElementById("errormessages");
+  div.innerHTML += message + "</br>";
+}
+
+function handleError(error) {
+  console.error(error);
+  showErrorToUser("Error:" + (error.name ? (error.name + ": " + error.message)
+                                         : error));
+}
 
 // Creates WebGL/WebGL2 context used to upload depth video to texture,
 // read the pixels to Float buffer and optionally render the texture.
@@ -82,58 +98,10 @@ function GL(canvasId) {
   return gl;
 }
 
-function getDepthDeviceLabelBasedConstraints() {
-  return new Promise(function(resolve, reject) {
-    navigator.mediaDevices.enumerateDevices()
-    .then(function(devices) {
-      for (var i = 0; i < devices.length; ++i) {
-        if (devices[i].label.indexOf("Depth") != -1)
-          return resolve({video:{deviceId: {exact: devices[i].deviceId}}});
-      }
-      for (var i = 0; i < devices.length; ++i) {
-        if (devices[i].label.indexOf("RealSense") != -1 && devices[i].kind === 'videoinput')
-          return resolve({video:{deviceId: {exact: devices[i].deviceId}}});
-      }
-      return reject("No depth capture device found");
-    })
-  });
-}
-
-function getDepthVideoKindStream() {
-  var constraints = {
-    video:{
-      videoKind: {exact:"depth"},
-      // R200 related hack to prefer depth (width = 628) to IR (width = 641)
-      // stream. Seems harmless with other devices.
-      width: {ideal:628}
-    }
-  }
-  return navigator.mediaDevices.getUserMedia(constraints);
-}
-
-function getDepthStream() {
-  return new Promise(function(resolve, reject) {
-    getDepthVideoKindStream()
-    .then(function(stream) {
-      return resolve(stream);
-    }, function() {
-      // Fallback to use label.
-      getDepthDeviceLabelBasedConstraints()
-      .then(function(constraints) {
-        return navigator.mediaDevices.getUserMedia(constraints);
-      }).then(function(stream) {
-        return resolve(stream);
-      }).catch(function(error) {
-        alert(error);
-        return reject("error getting the stream");
-      });
-    })
-  });
-}
-
 var gl;
 var video_frame_available = false;
 var read_buffer;
+var depth_device_id;
 
 var read_format;
 var canvas_2d = document.getElementById("canvas2D");
@@ -245,16 +213,18 @@ function allDevicesEnumerated(device_infos) {
     select_device.value = selected;
   } else if (!selected) {
     // If no other device is selected, set the initial selection to depth device.
-    getDepthDeviceLabelBasedConstraints().then(function(constraints) {
-      select_device.value = constraints.video.deviceId.exact;
-    }).catch(function(error) {
-      console.log("Set initial selection error:" + error);
-    });
+    if (depth_device_id)
+      select_device.value = depth_device_id;
   }
 }
 
 function streamOpened(stream) {
   video.srcObject = stream;
+  // Chrome, starting with version 59, implements getSettings() API.
+  var track = stream.getVideoTracks()[0];
+  if (track.getSettings)
+    depth_device_id = track.getSettings().deviceId;
+
   // Get all devices to drop-down list.
   return navigator.mediaDevices.enumerateDevices();
 }
@@ -268,12 +238,19 @@ function reload() {
 
   // If the item in drop-down list is selected, use it.
   var openStreamFunction = select_device.value ? function() {
-    return navigator.mediaDevices.getUserMedia({video: {deviceId: {exact: select_device.value}}});
-  } : getDepthStream;
+    return navigator.mediaDevices.getUserMedia({
+      video: {
+        deviceId: {
+          exact: select_device.value
+        }
+      }
+    });
+  } : DepthCamera.getDepthStream;
 
-  openStreamFunction().then(streamOpened).then(allDevicesEnumerated).catch(function(error) {
-    console.log(error);
-  });
+  openStreamFunction()
+  .then(streamOpened)
+  .then(allDevicesEnumerated)
+  .catch(handleError);
 }
 
 function onLoad() {
