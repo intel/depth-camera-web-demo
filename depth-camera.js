@@ -14,110 +14,98 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-DepthCamera.getDepthStream = function () {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices ||
-      !navigator.mediaDevices.getUserMedia)
-    return Promise.reject("Your browser doesn't support the mediaDevices API.");
+DepthCamera.getDepthStream = async function () {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices ||
+        !navigator.mediaDevices.getUserMedia)
+        throw new Error("Your browser doesn't support the mediaDevices API.");
 
-  return new Promise(async function(resolve, reject) {
-    try {
-      const constraints = {
-      	audio: false,
-        video:{
-          // We don't use videoKind as it is still under development.
-          // videoKind: {exact:"depth"},
-          // R200 related hack: prefer depth (width = 628) to IR (width = 641)
-          // stream.
-          width: {ideal:628, max:640},
+    let constraints = {
+        audio: false,
+        video: {
+            // We don't use videoKind as it is still under development.
+            // videoKind: {exact:"depth"}, R200 related hack: prefer
+            // depth (width = 628) to IR (width = 641) stream.
+            width: { ideal: 628, max: 640 },
 
-          // SR300 depth camera enables capture at 110 frames per second.
-          frameRate: {ideal:110},
+            // SR300 depth camera enables capture at 110 frames per
+            // second.
+            frameRate: { ideal:110 },
         }
-      }
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      const track = stream.getVideoTracks()[0];
-      if (track.label.indexOf("RealSense") == -1) {
-
-      	function getChromeVersion () {     
-          var raw = navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./);
-          return raw ? parseInt(raw[2], 10) : false;
-        }
-
-      	return reject(getChromeVersion() < 58 ?
-      	    "Your browser version is too old. Get Chrome version 58 or later." :
-      	    "No RealSense camera connected.");
-      }
-      return resolve(stream);
-    } catch(e) {
-      return reject("Error getting the depth camera stream:" + e);
     }
-  });
+    let stream = await navigator.mediaDevices.getUserMedia(constraints);
+    let track = stream.getVideoTracks()[0];
+    if (track.label.indexOf("RealSense") == -1) {
+        throw new Error(chromeVersion() < 58 ?
+            "Your browser version is too old. Get Chrome version 58 or later." :
+            "No RealSense camera connected.");
+    }
+
+    if (track.getSettings && track.getSettings().frameRate > 60) {
+        // After Chrome 59, returned track is scaled to 628 and frameCount 110.
+        // We got the deviceId, so we the deviceId to select the stream with
+        // default resolution and frameRate.
+        track.stop();
+        constraints = {
+            audio: false,
+            video: {
+                deviceId: {exact: track.getSettings().deviceId},
+            }
+        }
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        track = stream.getVideoTracks()[0];
+    }
+    return stream;
 }
 
 // Call the method after getting depth_stream using getDepthStream.
-DepthCamera.getColorStreamForDepthStream = function(depth_stream,
-                                                    ideal_width = undefined) {
-  // To get color stream from the same physical device providing the depth
-  // stream, we will use groupId, once it is implemented:
-  // See https://crbug.com/627793
-  // For now, enumerate devices based on label.
-  // Note: depth_stream is not used, for now, but deliberatelly added as a
-  // parameter to mandate the need for previous call to getDepthStream.
-  return new Promise(function(resolve, reject) {
-    navigator.mediaDevices.enumerateDevices()
-    .then(function(all_devices) {
-      
-      let depth_device_id = null;
-      const depth = depth_stream.getVideoTracks()[0];
-      // Chrome, starting with version 59, implements getSettings() API.
-      if (depth.getSettings) {
+DepthCamera.getColorStreamForDepthStream = async function(depth_stream,
+    ideal_width = undefined) {
+    // To get color stream from the same physical device providing the depth
+    // stream, we will use groupId, once it is implemented:
+    // See https://crbug.com/627793
+    // For now, enumerate devices based on label.
+    // Note: depth_stream is not used, for now, but deliberatelly added as a
+    // parameter to mandate the need for previous call to getDepthStream.
+    var all_devices = await navigator.mediaDevices.enumerateDevices();
+    let depth_device_id = null;
+    const depth = depth_stream.getVideoTracks()[0];
+    // Chrome, starting with version 59, implements getSettings() API.
+    if (depth.getSettings) {
         depth_device_id = depth.getSettings().deviceId;
-      } else if (ideal_width) { 
-      		console.warn("Not able to set ideal width for color video as \
-      		    MediaStreamTrack getSettings() API is not available. Try with \
-      		    Chromium version > 59.");
-      }
-
-
-      const devices = all_devices
+    } else if (ideal_width) {
+        console.warn(`Not able to set ideal width for color video as
+            MediaStreamTrack getSettings() API is not available. Try
+            with Chromium version > 59.`);
+    }
+    const devices = all_devices
         .filter((device) => (device.kind == "videoinput" &&
-                             device.label.indexOf("RealSense") !== -1 &&
-                             device.deviceId != depth_device_id));
-      if (devices.length < 1) {
-      	return reject("No RealSense camera connected.");
-      }
+            device.label.indexOf("RealSense") !== -1 &&
+            device.deviceId != depth_device_id));
+    if (devices.length < 1) {
+        throw new Error("No RealSense camera connected.");
+    }
+    // Select streams from these ids, so that some other camera doesn't get
+    // selected (e.g. if the user has another rgb camera).
+    const ids = devices.map((device) => device.deviceId);
 
-      // Select streams from these ids, so that some other camera doesn't get
-      // selected (e.g. if the user has another rgb camera).
-      const ids = devices.map((device) => device.deviceId);
- 
-      // Select color stream.
-      // Color stream tracks have larger resolution than depth stream tracks.
-      // If we cannot use deviceId to select, for now, we need to misuse width.
-      ideal_width = ids.length == 1 ? ideal_width : 1280;
-      const constraints = ideal_width ?
-      {
-        video: {
-          width: {ideal:ideal_width},
-          deviceId: {exact: ids},
-        },
-      } : {
-        video: {
-          deviceId: {exact: ids},
-        },
-      }
-      navigator.mediaDevices.getUserMedia(constraints)
-        .then(function(stream) {
-          return resolve(stream);
-        })
-        .catch(function(error) {
-      	  return reject(error);
-        });
-    })
-    .catch(function(error) {
-      return reject(error);
-    })
-  });    
+    // Select color stream.
+    // Color stream tracks have larger resolution than depth stream
+    // tracks. If we cannot use deviceId to select, for now, we need
+    // to misuse width.
+    ideal_width = ids.length == 1 ? ideal_width : 1280;
+    const constraints = ideal_width ?
+        {
+            video: {
+                width: {ideal:ideal_width},
+                deviceId: {exact: ids},
+            },
+        } : {
+            video: {
+                deviceId: {exact: ids},
+            },
+        };
+    var stream = await navigator.mediaDevices.getUserMedia(constraints);
+    return stream;
 }
 
 // Figure out the camera intristics and extrinsics based on the depth stream
@@ -127,10 +115,10 @@ DepthCamera.getColorStreamForDepthStream = function(depth_stream,
 // hardcode the values based on camera model, but query it from the API.
 //
 // See the documentation at
-// https://w3c.github.io/mediacapture-depth/#synchronizing-depth-and-color-video-rendering 
+// https://w3c.github.io/mediacapture-depth/#synchronizing-depth-and-color-video-rendering
 DepthCamera.getCameraCalibration = function(depth_stream) {
     const label = depth_stream.getVideoTracks()[0].label;
-    const cameraName = label.includes("R200") ? "R200" 
+    const cameraName = label.includes("R200") ? "R200"
         : (label.includes("Camera S") || label.includes("SR300")) ? "SR300"
         : label;
 
@@ -217,4 +205,9 @@ DepthCamera.getCameraCalibration = function(depth_stream) {
 }
 
 function DepthCamera() {
+}
+
+function chromeVersion () {
+    var raw = navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./);
+    return raw ? parseInt(raw[2], 10) : false;
 }

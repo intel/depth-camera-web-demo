@@ -1,0 +1,471 @@
+<html>
+<head>
+</head>
+<style>
+.canvasgroup {
+  position: relative;
+  width: 685px;
+}
+.canvasgroup canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+#canvasGL {
+  pointer-events: none;
+  z-index: 10;
+  width: 666px;
+  height: 350px;
+}
+.floatleft {
+  float: left;    
+}
+* {
+  margin: 0;
+  padding: 0;
+}
+body {
+  font: 75% Verdana;
+  background: #999;
+}
+#editor {
+  margin: 0 0 5px;
+  padding: 5px;
+  width: 666px;
+  height: 150px;
+  -webkit-border-radius: 5px;
+}
+.keyrow {
+  list-style: none;
+  float: left;
+}
+.keyrowshort {
+  width: 593px;
+}
+.keyrowreturn {
+  width: 70px;
+}
+#keyboard li {
+  float: left;
+  margin: 0 4px 4px 0;
+  width: 41px;
+  height: 41px;
+  line-height: 41px;
+  text-align: center;
+  border: 1px solid #f9f9f9;
+  -webkit-border-radius: 4px;
+}
+#keyboard .side {
+  width: 70px;
+}
+#keyboard #space {
+  width: 664px;
+}
+.capslock {
+  text-transform: uppercase;
+}
+.off {
+  display: none;
+}
+#keyboard li:hover, .hovered {
+  position: relative;
+  top: 1px;
+  left: 1px;
+  border-color: #e5e5e5;
+  background: #eee;
+  user-select: none;
+  cursor: default;
+}
+#keyboard #return {
+  width: 70px;
+  height: 88px;
+  line-height: 88px;     
+}
+</style>
+
+<body onload="onLoad()">
+  <div id="errormessages" style="font-color: red">
+  </div>
+  <div class="floatleft">
+    <div class="canvasgroup" id="canvasGroup">
+      <canvas id="canvasGL" width="688"></canvas>
+      <div>
+        <textarea id="editor" rows="6" cols="60" autofocus onkeydown="return false;"></textarea>
+        <div id="keyboard">
+          <div>
+            <ul class="keyrow">
+              <li class = "side" id="tab">Tab</li>
+              <li class="key"><span>q</span><span class="off">1</span></li>
+              <li class="key"><span>w</span><span class="off">2</span></li>
+              <li class="key"><span>e</span><span class="off">3</span></li>
+              <li class="key"><span>r</span><span class="off">4</span></li>
+              <li class="key"><span>t</span><span class="off">5</span></li>
+              <li class="key"><span>y</span><span class="off">6</span></li>
+              <li class="key"><span>u</span><span class="off">7</span></li>
+              <li class="key"><span>i</span><span class="off">8</span></li>
+              <li class="key"><span>o</span><span class="off">9</span></li>
+              <li class="key"><span>p</span><span class="off">0</span></li>
+              <li class="key"><span>:</span><span class="off">~</span></li>
+              <li class = "side" data-onclick="deleteKey">Delete</li>
+            </ul>
+          </div>
+          <div class="floatleft">
+            <ul class="keyrow keyrowshort">
+              <li class = "side" data-onclick="toggleCapsLock">CapsLock</li>
+              <li class="key"><span>a</span><span class="off">[</span></li>
+              <li class="key"><span>s</span><span class="off">]</span></li>
+              <li class="key"><span>d</span><span class="off">{</span></li>
+              <li class="key"><span>f</span><span class="off">}</span></li>
+              <li class="key"><span>g</span><span class="off">\</span></li>
+              <li class="key"><span>h</span><span class="off">|</span></li>
+              <li class="key"><span>j</span><span class="off">!</span></li>
+              <li class="key"><span>k</span><span class="off">#</span></li>
+              <li class="key"><span>l</span><span class="off">$</span></li>
+              <li class="key"><span>;</span><span class="off">£</span></li>
+              <li class="key"><span>@</span><span class="off">^</span></li>
+              <li class = "side" data-onclick="toggleSymbols">Shift</li>
+              <li class="key"><span>z</span><span class="off">(</span></li>
+              <li class="key"><span>x</span><span class="off">)</span></li>
+              <li class="key"><span>c</span><span class="off">*</span></li>
+              <li class="key"><span>v</span><span class="off">+</span></li>
+              <li class="key"><span>b</span><span class="off">%</span></li>
+              <li class="key"><span>n</span><span class="off">/</span></li>
+              <li class="key"><span>m</span><span class="off">?</span></li>
+              <li class="key"><span>&quot;</span><span class="off">&amp;</span></li>
+              <li class="key"><span>-</span><span class="off">_</span></li>
+              <li class="key"><span>,</span><span class="off">&lt;</span></li>
+              <li class="key"><span>.</span><span class="off">&gt;</span></li>
+            </ul>
+          </div>
+          <ul class="keyrow keyrowreturn"> 
+            <li id="return">Return</li>
+          </ul>
+          <ul class="keyrow"> 
+            <li id="space">&nbsp;</li>
+          </ul>
+        </div>
+    </div>
+  </div>
+</body>
+<script type="text/javascript" src="../depth-camera.js"></script>
+<script type="text/javascript" src="front_capture_typing.js"></script>
+<script type="text/javascript">
+"use strict";
+
+var video_loaded = false;
+
+function showErrorToUser(message) {
+  var div = document.getElementById("errormessages");
+  div.innerHTML += message + "</br>";
+}
+
+function handleError(error) {
+  console.error(error);
+  showErrorToUser("Error:" + (error.name ? (error.name + ": " + error.message)
+                                         : error));
+}
+
+var video = createOffscreenVideo();
+var init_done = false;
+video.addEventListener("play", frameLoop);
+var video_last_upload_time = -1;
+
+video.oncanplay = function(){
+  video_loaded=true;
+  init_done = false;
+}
+
+function frameLoop() {
+  if (video && video.paused && !touch_listener_added) {
+    touch_listener_added = true;
+    window.addEventListener("touchstart", onVideoTouchStart, true);
+  }
+  
+  if (video_loaded) {
+    if (video_last_upload_time == video.currentTime) {
+      window.requestAnimationFrame(frameLoop);
+      return;
+    }
+    video_last_upload_time = video.currentTime;
+    if (!init_done) {
+      gl.videoLoaded(video);
+      init_done = true;
+    }
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
+
+    // Upload the video frame to texture.
+    if (gl.color_buffer_float_ext) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, gl.RED, gl.FLOAT, video);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, gl.RGBA, gl.FLOAT, video);
+    }
+    gl.enable(gl.RASTERIZER_DISCARD);
+    gl.useProgram(gl.compute_program);
+    gl.bindVertexArray(gl.process_vao);
+    gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, gl.transform_feedback)
+    gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, gl.tf_bo)
+    gl.beginTransformFeedback(gl.POINTS);
+    gl.drawArrays(gl.POINTS, 0, tf_output.length);
+    gl.endTransformFeedback();
+    gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null)
+    gl.disable(gl.RASTERIZER_DISCARD);
+    gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, gl.tf_bo);
+    gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tf_output, 0, tf_output.length);
+    gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, null);
+    gl.useProgram(gl.render_program);
+    extractMinumums();
+    gl.bindVertexArray(gl.render_vao);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
+  gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.index_buffer);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+
+  processCurrentPos();
+  window.requestAnimationFrame(frameLoop);
+}
+
+function createOffscreenVideo() {
+  var video = document.createElement("video");
+  video.autoplay = true;
+  video.loop = true;
+  video.crossOrigin = "anonymous";
+  video.width = 640;
+  video.height = 480;
+  return video;
+}
+
+var canvasGL = document.getElementById("canvasGL");
+var hover_node;
+var queue = [];
+function processCurrentPos() {
+  var selected_node;
+  if (current_pos) {
+    const rect = canvasGL.getBoundingClientRect();
+    const scaled_pos_x = current_pos.x * rect.width / video.videoWidth;
+    const scaled_pos_y = current_pos.y * rect.height / video.videoHeight;
+    selected_node = keyFromPoint(scaled_pos_x + rect.left, scaled_pos_y + rect.top);
+
+    if (processClick(rect)) {
+      queue = [];
+      if (hover_node)
+        hover_node.classList.remove("hovered");
+      hover_node = null;
+      return;
+    }
+    // Limit the queue size.
+    if (queue.length > 15)
+      queue.shift();
+    queue.push(current_pos);
+  } else {
+    // Start again if there is no value.
+    queue = [];
+  }
+  if (selected_node != hover_node) {
+    if (hover_node)
+      hover_node.classList.remove("hovered");
+    hover_node = selected_node;
+    if (hover_node) {
+      if (!hover_node.classList)
+        hover_node.class = "";
+      hover_node.classList.add("hovered");
+    }
+  }
+}
+
+function keyFromPoint(abs_x, abs_y) {
+  var node = document.elementFromPoint(abs_x, abs_y);
+  if (!node)
+    return undefined;
+  while (node.parentNode && node.nodeName != "LI")
+    node = node.parentNode;
+  return (node.parentNode &&
+          node.parentNode.classList.contains("keyrow")) ? node : undefined;
+}
+
+var finger_down_treshold = Number.MAX_VALUE;
+function processClick(rect) {
+  if (queue.length < 4)
+    return false;
+  var pos2 = queue[queue.length - 2];
+  var pos1 = queue[queue.length - 1];
+  // pos2 should be a minimum.
+  if (current_pos.depth < pos2.depth || pos1.depth < pos2.depth)
+    return false;
+  if (!areFromTheSameFinger(pos1, pos2) && !areFromTheSameFinger(current_pos, pos2))
+    return false;
+  var pos3 = queue[queue.length - 3];
+  if (pos2.depth + finger_down_treshold / 2 > current_pos.depth &&
+      pos2.depth + finger_down_treshold / 2 > pos1.depth)
+    return false;
+  if (!areFromTheSameFinger(pos2, pos3)) {
+    // Some other finger might be detected when moving up/down so check around.
+    if (!areFromTheSameFinger(pos2, queue[queue.length - 4]))
+      return false;
+  }
+  const scaled_pos2_x = pos2.x * rect.width / video.videoWidth;
+  const scaled_pos2_y = pos2.y * rect.height / video.videoHeight;
+  const node2 = keyFromPoint(scaled_pos2_x + rect.left, scaled_pos2_y + rect.top);
+  const scaled_pos3_x = pos3.x * rect.width / video.videoWidth;
+  const scaled_pos3_y = pos3.y * rect.height / video.videoHeight;
+  const node3 = keyFromPoint(scaled_pos3_x + rect.left, scaled_pos3_y + rect.top);
+
+  const node1 = keyFromPoint(pos1.x * rect.width / video.videoWidth + rect.left,
+                                     pos3.y * rect.height / video.videoHeight + rect.top);
+  if (!node2 && !node3)
+    return false;
+
+  var node = node2;
+  if (!node)
+    node = node3;
+  var finger_down = false;
+  // Look for the finger down movement.
+  for (var i = queue.length - 2; i > 2; --i) {
+    if ((queue[i].depth < queue[i - 1].depth - finger_down_treshold &&
+         areFromTheSameFinger(queue[i], queue[i - 1])) ||
+        (queue[i].depth < queue[i - 2].depth - finger_down_treshold &&
+         areFromTheSameFinger(queue[i], queue[i - 2]))) {
+      if (!areFromTheSameFinger(queue[i - 1], queue[i - 2]) &&
+         // Using thumb on space key is special case; long horizontal move but
+         // the key should be the same.
+         (node2 != node3 && node1 != node2))
+        return false;
+      finger_down = true;
+      break;
+    }
+  }
+
+  if (!finger_down && queue[1].depth < queue[0].depth - finger_down_treshold
+      && areFromTheSameFinger(queue[1], queue[0]))
+    finger_down = true;
+  
+  if (!finger_down)
+    return false;
+
+  buttonClicked(node);
+  return true;
+}
+
+function areFromTheSameFinger(pos1, pos2) {
+  var x2 = pos1.x - pos2.x;
+  var y2 = pos1.y - pos2.y;
+  x2 = x2 * x2;
+  y2 = y2 * y2;
+  return (x2 + y2 < pos1.filtered_width * pos1.filtered_width * 2);
+}
+
+// If needed, tap to start video.
+var touch_listener_added = false;
+function onVideoTouchStart() {
+  touch_listener_added = false;
+  window.removeEventListener("touchstart", onVideoTouchStart, true);
+  video.play();
+}
+
+function streamOpened(stream) {
+  video.srcObject = stream;
+  const depth_scale = DepthCamera.getCameraCalibration(stream).depthScale;
+  // Take 1 cm (0.01) as the minimal depth change when detecting the click.
+  finger_down_treshold = 0.0085 / depth_scale;
+
+  video_loaded = false;
+  init_done = false;
+}
+
+function reload() {
+  if (window.stream) {
+    window.stream.getTracks().forEach(function(track) {
+      track.stop();
+    });
+  }
+
+  DepthCamera.getDepthStream().then(streamOpened).catch(handleError);
+}
+
+function onLoad() {
+  gl = GL("canvasGL");
+  
+  reload();
+}
+
+const keyboard = document.getElementById("keyboard");
+const editor = document.getElementById("editor");
+keyboard.addEventListener("click", function( event ) {
+    var node = document.elementFromPoint(event.clientX, event.clientY);
+    if (node)
+      buttonClicked(node);
+  }, false);
+keyboard["symbols_on"] = false;
+keyboard["capslock"] = false;
+
+function toggleSymbols() {
+  keyboard.symbols_on = !keyboard.symbols_on;
+  const span_on = keyboard.symbols_on ? 1 : 0;
+  const span_off = keyboard.symbols_on ? 0 : 1;
+  Array.from(keyboard.getElementsByClassName("key")).forEach(
+    function(element) {
+      element.children[span_on].classList.remove("off");
+      element.children[span_off].classList.add("off");
+    });
+}
+
+function toggleCapsLock() {
+  keyboard.capslock = !keyboard.capslock;
+  Array.from(keyboard.getElementsByClassName("key")).forEach(
+    function(element) {
+      if (keyboard.capslock)
+        element.classList.add("capslock");
+      else
+        element.classList.remove("capslock");
+    });
+}
+
+function deleteKey() {
+  editor.defaultValue = editor.defaultValue.slice(0, -1);
+}
+
+function buttonClicked(button) {
+  if (button.nodeName != "LI")
+    return;
+
+  const onclick = button.getAttribute("data-onclick");
+  if (onclick) {
+    window[onclick]();
+    return;
+  }
+
+  let key = button.innerText;
+  
+  switch (button.id) {
+    case "space":
+      key = " ";
+      break;
+    case "tab":
+      key = "\t";
+      break;
+    case "return":
+      key = "\n";
+      break;
+    default:
+      break;
+  }
+
+  // TODO: double click should make symbols stay after first character.
+  if (keyboard.symbols_on)
+    toggleSymbols();
+  editor.defaultValue = editor.defaultValue + key;
+
+  if (key == '.' && !keyboard.capslock)
+    toggleCapsLock();
+  if (keyboard.capslock && key.toLowerCase() != key.toUpperCase())
+    toggleCapsLock();
+}
+
+</script>
+
+</html>
+
