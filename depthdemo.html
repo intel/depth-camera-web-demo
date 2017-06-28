@@ -1,265 +1,400 @@
 <html>
 <head>
 </head>
-<body onload="onLoad()">
-  <h2>HTML5 Depth Capture Demo</h2>
-    <div id="errormessages" style="color: red; font-size: 150%;">
-    <!-- Print error messages here. -->
+
+<style>
+  body {
+    display: flex;
+    flex-direction: column;
+    font-family: 'Roboto', 'Noto', sans-serif;
+    line-height: 1.5;
+    background-color: #fbfbfb;
+    margin: 20px;
+  }
+
+  .select {
+    margin: 16px 0px;
+    display: flex;
+    flex-direction: column;
+    max-width: 400px;
+  }
+
+  select {
+    background-color: transparent;
+    width: 100%;
+    padding: 4px 0;
+    font-size: 16px;
+    color: rgba(0,0,0, 0.26);
+    border: none;
+    border-bottom: 1px solid rgba(0,0,0, 0.12);
+  }
+
+  select:focus {
+    outline: none;
+  }
+
+  .select > label {
+    font-size: 10pt;
+    color: gray;
+  }
+
+  #console {
+    color: red;
+    font-size: 150%;
+    margin: 16px 0px;
+  }
+
+  canvas {
+    border: 1px solid #cccccc;
+    background-color: white;
+  }
+</style>
+
+<template id="video-stream">
+  <style>
+    :host {
+      display: flex;
+      flex-flow: row wrap;
+    }
+
+    div {
+      margin-right: 16px;
+    }
+
+    canvas {
+      padding: 16px;
+      align-self: center;
+    }
+
+    div {
+      margin: 16px;
+    }
+
+    label {
+      display: block;
+      margin: 16px 0px;
+    }
+  </style>
+  <div>
+    <label>WebGL canvas with depth video frame texture:</label>
+    <canvas id="canvasGL" width="640" height="480"></canvas>
   </div>
+  <div>
+    <label>Depth video frame, after <code>gl.readPixels</code> and processing on CPU:</label>
+    <canvas id="canvas2D" width="640" height="480"></canvas>
+  </div>
+</template>
+
+<body onload="onLoad()">
+  <h2>Depth Capture Demo</h2>
 
   <div class="select">
-    <label for="selectVideoDevice">Video capture device used for depth stream: </label><select id="selectVideoDevice"></select>
+    <label for="selectVideoDevice">Capture device with depth stream</label>
+    <select id="selectVideoDevice"></select>
   </div>
-  <div style="float:left;margin-right:20px">
-    <label style="display:block;">WebGL canvas with depth video frame texture:</label>
-    <canvas id="canvasGL" width="640" height="480" style="border:1px solid #CCCCCC;"></canvas>
-  </div>
-  <div style="float:left;">
-    <label style="display:block;">Depth video frame, after gl.readPixels and processing on CPU:</label>
-    <canvas id="canvas2D" width="640" height="480" style="border:1px solid #CCCCCC;"></canvas>
+
+  <video-stream></video-stream>
+
+  <div id="console">
+    <!-- Print error messages here. -->
   </div>
 </body>
 
-<script type="text/javascript" src="depth-camera.js"></script>
-<script type="text/javascript">
+<script src="depth-camera.js"></script>
+<script>
 
-function showErrorToUser(message) {
-  var div = document.getElementById("errormessages");
-  div.innerHTML += message + "</br>";
-}
+  let error = window.console.error;
+  window.console.error = (message, ...rest) => {
+    let target = document.querySelector('#console');
+    error.call(window.console, message, ...rest);
 
-function handleError(error) {
-  console.error(error);
-  showErrorToUser("Error:" + (error.name ? (error.name + ": " + error.message)
-                                         : error));
-}
-
-// Creates WebGL/WebGL2 context used to upload depth video to texture,
-// read the pixels to Float buffer and optionally render the texture.
-function GL(canvasId) {
-  var canvas = document.getElementById(canvasId);
-  var gl = canvas.getContext("webgl2");
-  if (gl) {
-    // The extension tells us if we can use single component R32F texture format.
-    gl.color_buffer_float_ext = gl.getExtension('EXT_color_buffer_float');
-  } else {
-    gl = canvas.getContext("webgl");
-    gl.getExtension("OES_texture_float");
-  }
-
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-  // Shaders and program are needed only if rendering depth texture.
-  var vertex_shader = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vertex_shader, "attribute vec2 v;varying vec2 t;void main(){gl_Position=vec4(v.x*2.0-1.0,1.0-v.y*2.0,0,1);t=v;}");
-  gl.compileShader(vertex_shader);
-
-  var pixel_shader = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(pixel_shader, "precision mediump float;uniform sampler2D s;varying vec2 t;void main(){vec4 tex=texture2D(s,t);gl_FragColor=vec4(tex.r, tex.r, tex.r, tex.a);}");
-  gl.compileShader(pixel_shader);
-
-  var program  = gl.createProgram();
-  gl.attachShader(program, vertex_shader);
-  gl.attachShader(program, pixel_shader);
-  gl.linkProgram(program);
-  gl.useProgram(program);
-
-  var vertex_location = gl.getAttribLocation(program, "v");
-  gl.enableVertexAttribArray(vertex_location);
-  gl.uniform1i(gl.getUniformLocation(program, "s"), 0);
-
-  var vertex_buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,1,0,1,1,0,1]), gl.STATIC_DRAW);
-
-  var index_buffer= gl.createBuffer();
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index_buffer);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2,0,2,3]), gl.STATIC_DRAW);
-
-  var depth_texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, depth_texture);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-
-  // Framebuffer for reading back the texture.
-  var framebuffer = gl.createFramebuffer();
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, depth_texture, 0);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-  gl.vertex_buffer = vertex_buffer;
-  gl.vertex_location = vertex_location;
-  gl.index_buffer = index_buffer;
-  gl.depth_texture = depth_texture;
-  gl.framebuffer = framebuffer;
-  return gl;
-}
-
-var gl;
-var video_frame_available = false;
-var read_buffer;
-var depth_device_id;
-
-var read_format;
-var canvas_2d = document.getElementById("canvas2D");
-var context_2d = canvas_2d.getContext("2d");
-var select_device = document.querySelector('select#selectVideoDevice');
-
-var video = createOffscreenVideo();
-video.oncanplay = function(){ video_frame_available=true; }
-video.addEventListener("play", frameLoop);
-
-function frameLoop() {
-  if (video && video.paused && !touch_listener_added) {
-    touch_listener_added = true;
-    window.addEventListener("touchstart", onVideoTouchStart, true);
-  }
-
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
-
-  if (video_frame_available) {
-    // Upload the video frame to texture.
-    if (gl.color_buffer_float_ext) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, gl.RED, gl.FLOAT, video);
-    } else {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, gl.RGBA, gl.FLOAT, video);
+    if (message instanceof Error) {
+      message = `${message.name}: ${message.message}`;
     }
-    
-    // Read it back to buffer.
-    readPixels();
-    
-    // TODO: process pixels.
-    // Put read and processed pixels to 2D canvas.
-    // Note: This is just one of scenarios for the demo. You can directly
-    // bind video to 2D canvas without using WebGL as intermediate step.
-    putReadPixelsTo2DCanvas();
+
+    target.innerHTML += `${message}<br>`;
   }
-  gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
-  gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
 
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.index_buffer);
-  gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
-  window.requestAnimationFrame(frameLoop);
-}
+  customElements.define('video-stream', class extends HTMLElement {
+    constructor() {
+      super();
+      const template = document.querySelector('#video-stream');
+      const clone = document.importNode(template.content, true);
+      const shadowRoot = this.attachShadow({ mode: 'open' });
+      this.shadowRoot.appendChild(clone);
 
-function readPixels() {
-  // Bind the framebuffer the texture is color-attached to.
-  gl.bindFramebuffer(gl.FRAMEBUFFER, gl.framebuffer);
-  
-  if (!read_buffer) {
-    read_format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
-    if (read_format == gl.RED && gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) == gl.FLOAT) {
-      read_buffer = new Float32Array(video.width * video.height);
-    } else {
-      read_format = gl.RGBA;
-      read_buffer = new Float32Array(video.width * video.height * 4);
+      this._frameLoop = this._frameLoop.bind(this);
+
+      this.readBuffer = null;
+      this.readFormat = null;
     }
-  }
-  gl.readPixels(0, 0, video.width, video.height, read_format, gl.FLOAT, read_buffer);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-}
 
-function putReadPixelsTo2DCanvas() {
-  var img = context_2d.getImageData(0, 0, video.width, video.height);
-  var data = img.data;
-  var stride = (read_format === gl.RED) ? 1 : 4;
-  var j = 0;
-  for (var i = 0; i < data.length; i += 4, j += stride) {
-     data[i] = read_buffer[j] * 255;
-     data[i+3] = 255;
-  }
-  context_2d.putImageData(img, 0, 0);
-}
 
-function createOffscreenVideo() {
-  var video = document.createElement("video");
-  video.autoplay = true;
-  video.loop = true;
-  video.crossOrigin = "anonymous";
-  video.width = 640;
-  video.height = 480;
-  return video;
-}
+    connectedCallback() {
+      this.gl = this._configureGLContext();
 
-// If needed, tap to start video.
-var touch_listener_added = false;
-function onVideoTouchStart() {
-  touch_listener_added = false;
-  window.removeEventListener("touchstart", onVideoTouchStart, true);
-  video.play();
-}
+      const canvas = this.shadowRoot.getElementById("canvas2D");
+      this.ctx2d = canvas.getContext("2d");
 
-function allDevicesEnumerated(device_infos) {
-  var selected = select_device.value;
-  var selection_still_exists = false;
-  while (select_device.firstChild)
-    select_device.removeChild(select_device.firstChild);
-  for (var i = 0; i !== device_infos.length; ++i) {
-    var device_info = device_infos[i];
-    if (device_info.kind !== 'videoinput')
-      continue;
-    var option = document.createElement('option');
-    option.value = device_info.deviceId;
-    option.text = device_info.label || 'camera ' + (select_device.length + 1);
-    select_device.appendChild(option);
-    if (option.value === selected)
-      selection_still_exists = true;
-  }
-  if (selection_still_exists) {
-    select_device.value = selected;
-  } else if (!selected) {
-    // If no other device is selected, set the initial selection to depth device.
-    if (depth_device_id)
-      select_device.value = depth_device_id;
-  }
-}
+      this.frameAvailable = false;
 
-function streamOpened(stream) {
-  video.srcObject = stream;
-  // Chrome, starting with version 59, implements getSettings() API.
-  var track = stream.getVideoTracks()[0];
-  if (track.getSettings)
-    depth_device_id = track.getSettings().deviceId;
+      this.video = this._createOffscreenVideo();
+      this.video.oncanplay = _ => { this.frameAvailable = true; }
+      this.video.addEventListener("play", this._frameLoop);
 
-  // Get all devices to drop-down list.
-  return navigator.mediaDevices.enumerateDevices();
-}
+      let hasTouchListeners = false;
+      const onVideoTouchStart = _ => {
+        hasTouchListeners = false;
+        window.removeEventListener("touchstart", onVideoTouchStart, true);
+        this.video.play();
+      }
 
-function reload() {
-  if (window.stream) {
-    window.stream.getTracks().forEach(function(track) {
-      track.stop();
-    });
-  }
+      if (this.video && this.video.paused && !hasTouchListeners) {
+        hasTouchListeners = true;
+        window.addEventListener("touchstart", onVideoTouchStart, true);
+      }
+    }
 
-  // If the item in drop-down list is selected, use it.
-  var openStreamFunction = select_device.value ? function() {
-    return navigator.mediaDevices.getUserMedia({
-      video: {
-        deviceId: {
-          exact: select_device.value
+    _createOffscreenVideo() {
+      return Object.assign(document.createElement("video"), {
+        autoplay: true,
+        loop: true,
+        crossOrigin: "anonymous",
+        width: 640,
+        height: 480
+      });
+    }
+
+    _frameLoop() {
+      const gl = this.gl;
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
+
+      if (this.frameAvailable) {
+        // Upload the video frame to texture.
+        if (gl.color_buffer_float_ext) {
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, gl.RED, gl.FLOAT, this.video);
+        } else {
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, gl.RGBA, gl.FLOAT, this.video);
+        }
+
+        // Read it back to buffer.
+        this._readPixels();
+
+        // TODO: process pixels.
+        // Put read and processed pixels to 2D canvas.
+        // Note: This is just one of scenarios for the demo. You can directly
+        // bind video to 2D canvas without using WebGL as intermediate step.
+        this._putReadPixelsTo2DCanvas();
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
+      gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
+
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.index_buffer);
+      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+      window.requestAnimationFrame(this._frameLoop);
+    }
+
+    _readPixels() {
+      const gl = this.gl;
+      // Bind the framebuffer the texture is color-attached to.
+      gl.bindFramebuffer(gl.FRAMEBUFFER, gl.framebuffer);
+
+      if (!this.readBuffer) {
+        this.readFormat = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
+        if (this.readFormat == gl.RED && gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) == gl.FLOAT) {
+          this.readBuffer = new Float32Array(this.video.width * this.video.height);
+        } else {
+          this.readFormat = gl.RGBA;
+          this.readBuffer = new Float32Array(this.video.width * this.video.height * 4);
         }
       }
-    });
-  } : DepthCamera.getDepthStream;
+      gl.readPixels(0, 0, this.video.width, this.video.height, this.readFormat, gl.FLOAT, this.readBuffer);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
 
-  openStreamFunction()
-  .then(streamOpened)
-  .then(allDevicesEnumerated)
-  .catch(handleError);
-}
+    _putReadPixelsTo2DCanvas() {
+      const img = this.ctx2d.getImageData(0, 0, this.video.width, this.video.height);
+      const data = img.data;
+      const stride = (this.readFormat === this.gl.RED) ? 1 : 4;
+      for (let i = 0, j = 0; i < data.length; i += 4, j += stride) {
+        data[i] = this.readBuffer[j] * 255;
+        data[i+3] = 255;
+      }
+      this.ctx2d.putImageData(img, 0, 0);
+    }
 
-function onLoad() {
-  gl = GL("canvasGL");
-  select_device.onchange = reload;
-  reload();
-}
+    // Creates WebGL/WebGL2 context used to upload depth video to texture,
+    // read the pixels to Float buffer and optionElally render the texture.
+    _configureGLContext() {
+      const canvas = this.shadowRoot.getElementById("canvasGL");
+      const gl = canvas.getContext("webgl2");
+      if (gl) {
+        // The extension tells us if we can use single component R32F texture format.
+        gl.color_buffer_float_ext = gl.getExtension('EXT_color_buffer_float');
+      } else {
+        gl = canvas.getContext("webgl");
+        gl.getExtension("OES_texture_float");
+      }
 
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+      // Shaders and program are needed only if rendering depth texture.
+      var vertex_shader = gl.createShader(gl.VERTEX_SHADER);
+      gl.shaderSource(vertex_shader, `
+        attribute vec2 v;
+        varying vec2 t;
+
+        void main(){
+          gl_Position = vec4(v.x * 2.0 - 1.0, 1.0 - v.y * 2.0, 0, 1);
+          t = v;
+        }`);
+      gl.compileShader(vertex_shader);
+
+      var pixel_shader = gl.createShader(gl.FRAGMENT_SHADER);
+      gl.shaderSource(pixel_shader, `
+        precision mediump float;
+        uniform sampler2D s;
+        varying vec2 t;
+
+        void main(){
+          vec4 tex = texture2D(s, t);
+          gl_FragColor = vec4(tex.r, tex.r, tex.r, tex.a);
+        }`);
+      gl.compileShader(pixel_shader);
+
+      var program  = gl.createProgram();
+      gl.attachShader(program, vertex_shader);
+      gl.attachShader(program, pixel_shader);
+      gl.linkProgram(program);
+      gl.useProgram(program);
+
+      var vertex_location = gl.getAttribLocation(program, "v");
+      gl.enableVertexAttribArray(vertex_location);
+      gl.uniform1i(gl.getUniformLocation(program, "s"), 0);
+
+      var vertex_buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,1,0,1,1,0,1]), gl.STATIC_DRAW);
+
+      var index_buffer= gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index_buffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2,0,2,3]), gl.STATIC_DRAW);
+
+      var depth_texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, depth_texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+      // Framebuffer for reading back the texture.
+      var framebuffer = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, depth_texture, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+      gl.vertex_buffer = vertex_buffer;
+      gl.vertex_location = vertex_location;
+      gl.index_buffer = index_buffer;
+      gl.depth_texture = depth_texture;
+      gl.framebuffer = framebuffer;
+
+      return gl;
+    }
+
+    async loadStream(deviceId) {
+      if (window.stream) {
+        for (let track of window.stream.getTracks()) {
+          track.stop();
+        }
+      }
+
+      // If the item in drop-down list is selected, use it.
+      const getUserMedia = () => {
+        // add ?allow=all to URL to allow listing all devices (incl. those not supporting depth).
+        if (!deviceId && (new URL(window.location)).searchParams.get("allow") !== "all") {
+          return DepthCamera.getDepthStream();
+        }
+
+        const constraints = {
+          video: {
+            deviceId: deviceId ? { exact: deviceId } : {}
+          }
+        }
+
+        return navigator.mediaDevices.getUserMedia(constraints);
+      }
+
+      try {
+        const stream = await getUserMedia();
+        this.video.srcObject = stream;
+
+        // Chrome, starting with version 59, implements getSettings() API.
+        const track = stream.getVideoTracks()[0];
+        if (track.getSettings) {
+          this.depthDeviceId = track.getSettings().deviceId;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  });
+
+  function populateSelectElement(devices) {
+    const selectEl = document.querySelector('#selectVideoDevice');
+    const videoStreamEl = document.querySelector('video-stream');
+
+    let selected = selectEl.value;
+
+    while (selectEl.firstChild) {
+      selectEl.removeChild(selectEl.firstChild);
+    }
+
+    let selectedDeviceStillExists = false;
+    for (let i = 0; i < devices.length; ++i) {
+      const info = devices[i];
+      if (info.kind !== 'videoinput') {
+        continue;
+      }
+
+      const optionEl = document.createElement('option');
+      optionEl.value = info.deviceId;
+      optionEl.text = info.label || 'camera ' + (selectEl.length + 1);
+      selectEl.appendChild(optionEl);
+
+      if (optionEl.value === selected) {
+        selectedDeviceStillExists = true;
+      }
+    }
+
+    if (selectedDeviceStillExists) {
+      selectEl.value = selected;
+    } else if (!selected) {
+      // If no other device is selected, set the initial selection to depth device.
+      if (videoStreamEl.depthDeviceId) {
+        selectEl.value = videoStreamEl.depthDeviceId;
+      }
+    }
+  }
+
+  function onLoad() {
+    const videoStreamEl = document.querySelector('video-stream');
+    const selectEl = document.querySelector('#selectVideoDevice');
+
+    selectEl.onchange = async event => {
+      selectEl.disabled = true;
+      const deviceId = event.target.value;
+
+      await videoStreamEl.loadStream(deviceId);
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      populateSelectElement(devices);
+
+      selectEl.disabled = false;
+    };
+    selectEl.dispatchEvent(new Event('change', { 'bubbles': true }))
+  }
 </script>
-
 </html>
-
