@@ -2,151 +2,218 @@
 <head>
 </head>
 <style>
-.canvasgroup {
+  body {
+    display: flex;
+    flex-direction: column;
+    font-family: 'Roboto', 'Noto', sans-serif;
+    line-height: 1.5;
+    background-color: #fbfbfb;
+    margin: 20px;
+  }
+
+#group {
   position: relative;
-  width: 685px;
+  width: 800px;
+  height: 400px;
 }
-.canvasgroup canvas {
+
+canvas {
+  pointer-events: none;
+  z-index: 10;
+}
+
+virtual-keyboard, canvas {
   position: absolute;
   top: 0;
   left: 0;
-}
-#canvasGL {
-  pointer-events: none;
-  z-index: 10;
-  width: 666px;
-  height: 350px;
-}
-.floatleft {
-  float: left;    
-}
-* {
-  margin: 0;
-  padding: 0;
-}
-body {
-  font: 75% Verdana;
-  background: #999;
-}
-#editor {
-  margin: 0 0 5px;
-  padding: 5px;
-  width: 666px;
-  height: 150px;
-  -webkit-border-radius: 5px;
-}
-.keyrow {
-  list-style: none;
-  float: left;
-}
-.keyrowshort {
-  width: 593px;
-}
-.keyrowreturn {
-  width: 70px;
-}
-#keyboard li {
-  float: left;
-  margin: 0 4px 4px 0;
-  width: 41px;
-  height: 41px;
-  line-height: 41px;
-  text-align: center;
-  border: 1px solid #f9f9f9;
-  -webkit-border-radius: 4px;
-}
-#keyboard .side {
-  width: 70px;
-}
-#keyboard #space {
-  width: 664px;
-}
-.capslock {
-  text-transform: uppercase;
-}
-.off {
-  display: none;
-}
-#keyboard li:hover, .hovered {
-  position: relative;
-  top: 1px;
-  left: 1px;
-  border-color: #e5e5e5;
-  background: #eee;
-  user-select: none;
-  cursor: default;
-}
-#keyboard #return {
-  width: 70px;
-  height: 88px;
-  line-height: 88px;     
+  width: 100%;
+  height: 100%;
 }
 </style>
+
+<template id="virtual-keyboard">
+  <style>
+    :host {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    #editor {
+      margin: 0 0 5px;
+      padding: 5px;
+      flex: 1;
+      border-radius: 5px;
+    }
+    .keyrow {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+    }
+    .keyrow > div {
+      width: 100%;
+      min-width: 30px;
+      height: auto;
+      min-height: 40px;
+      flex-basis: auto;
+      text-align: center;
+      font-weight: bold;
+      border: 1px solid #bbbbbb;
+      border-radius: 3px;
+      flex: 1;
+    }
+    .shift {
+      text-transform: uppercase;
+    }
+    .off {
+      visibility: hidden;
+    }
+
+    .key {
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      margin: 1px;
+    }
+    .keyrow > div:hover, .hovered {
+      position: relative;
+      top: 1px;
+      left: 1px;
+      border-color: #e5e5e5;
+      background: #eee;
+      user-select: none;
+      cursor: default;
+    }
+
+    .left-side {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-end;
+    }
+
+    .right-side {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-end;
+      justify-content: flex-end;
+    }
+
+    .key svg {
+      pointer-events: none;
+      margin: 0px 4px;
+    }
+
+    .key div {
+      pointer-events: none;
+      margin: 0px 4px;
+    }
+
+    span {
+      display: flex;
+      flex-direction: column;
+      align-content: center;
+      justify-content: center;
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+    }
+  </style>
+  <textarea id="editor" rows="6" cols="60" autofocus onkeydown="return false;"></textarea>
+  <div id="keyboard">
+    <div class="keyrow">
+        <div class="key left-side" id="tab" style="flex-grow: 1.5" >
+          <svg fill="#000000" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 0h24v24H0z" fill="none"/>
+            <path d="M11.59 7.41L15.17 11H1v2h14.17l-3.59 3.59L13 18l6-6-6-6-1.41 1.41zM20 6v12h2V6h-2z"/>
+          </svg>
+        </div>
+        <div class="key"><span>q</span><span class="off">1</span></div>
+        <div class="key"><span>w</span><span class="off">2</span></div>
+        <div class="key"><span>e</span><span class="off">3</span></div>
+        <div class="key"><span>r</span><span class="off">4</span></div>
+        <div class="key"><span>t</span><span class="off">5</span></div>
+        <div class="key"><span>y</span><span class="off">6</span></div>
+        <div class="key"><span>u</span><span class="off">7</span></div>
+        <div class="key"><span>i</span><span class="off">8</span></div>
+        <div class="key"><span>o</span><span class="off">9</span></div>
+        <div class="key"><span>p</span><span class="off">0</span></div>
+        <div class="key"><span>:</span><span class="off">~</span></div>
+        <div class="key right-side" style="flex-grow: 1.5" data-onclick="deleteKey">
+          <svg fill="#000000" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 0h24v24H0z" fill="none"/>
+            <path d="M21 11H6.83l3.58-3.59L9 6l-6 6 6 6 1.41-1.41L6.83 13H21z"/>
+          </svg>
+        </div>
+    </div>
+    <div class="keyrow">
+        <div class="key left-side" style="flex-grow: 1.2" data-onclick="toggleCapslock">
+          <svg fill="#000000" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 8.41L16.59 13 18 11.59l-6-6-6 6L7.41 13 12 8.41zM6 18h12v-2H6v2z"/>
+            <path d="M0 0h24v24H0z" fill="none"/>
+          </svg>
+        </div>
+        <div class="key"><span>a</span><span class="off">[</span></div>
+        <div class="key"><span>s</span><span class="off">]</span></div>
+        <div class="key"><span>d</span><span class="off">{</span></div>
+        <div class="key"><span>f</span><span class="off">}</span></div>
+        <div class="key"><span>g</span><span class="off">\</span></div>
+        <div class="key"><span>h</span><span class="off">|</span></div>
+        <div class="key"><span>j</span><span class="off">!</span></div>
+        <div class="key"><span>k</span><span class="off">#</span></div>
+        <div class="key"><span>l</span><span class="off">$</span></div>
+        <div class="key"><span>;</span><span class="off">£</span></div>
+        <div class="key"><span>@</span><span class="off">^</span></div>
+        <div class="key right-side" id="return" style="flex-grow: 2">
+          <svg fill="#000000" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 0h24v24H0z" fill="none"/>
+            <path d="M19 7v4H5.83l3.58-3.59L8 6l-6 6 6 6 1.41-1.41L5.83 13H21V7z"/>
+          </svg>
+        </div>
+      </div>
+      <div class="keyrow">
+        <div class="key left-side" style="flex-grow: 1.2" data-onclick="toggleShift">
+          <svg fill="#000000" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+            <path d="M0 0h24v24H0z" fill="none"/>
+          </svg>
+        </div>
+        <div class="key"><span>z</span><span class="off">(</span></div>
+        <div class="key"><span>x</span><span class="off">)</span></div>
+        <div class="key"><span>c</span><span class="off">*</span></div>
+        <div class="key"><span>v</span><span class="off">+</span></div>
+        <div class="key"><span>b</span><span class="off">%</span></div>
+        <div class="key"><span>n</span><span class="off">/</span></div>
+        <div class="key"><span>m</span><span class="off">?</span></div>
+        <div class="key"><span>&quot;</span><span class="off">&amp;</span></div>
+        <div class="key"><span>-</span><span class="off">_</span></div>
+        <div class="key"><span>,</span><span class="off">&lt;</span></div>
+        <div class="key"><span>.</span><span class="off">&gt;</span></div>
+        <div class="key right-side" style="flex-grow: 1.2" data-onclick="toggleShift">
+          <svg fill="#000000" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>
+            <path d="M0 0h24v24H0z" fill="none"/>
+          </svg>
+        </div>
+    </div>
+    <div class="keyrow">
+      <div class="key left-side" style="flex-grow: 1" data-onclick="toggleSymbols"><div>Fn</div></div>
+      <div class="key" style="flex-grow: 12" id="space">&nbsp;</div>
+    </div>
+  </div>
+</template>
 
 <body onload="onLoad()">
   <div id="errormessages" style="font-color: red">
   </div>
-  <div class="floatleft">
-    <div class="canvasgroup" id="canvasGroup">
-      <canvas id="canvasGL" width="688"></canvas>
-      <div>
-        <textarea id="editor" rows="6" cols="60" autofocus onkeydown="return false;"></textarea>
-        <div id="keyboard">
-          <div>
-            <ul class="keyrow">
-              <li class = "side" id="tab">Tab</li>
-              <li class="key"><span>q</span><span class="off">1</span></li>
-              <li class="key"><span>w</span><span class="off">2</span></li>
-              <li class="key"><span>e</span><span class="off">3</span></li>
-              <li class="key"><span>r</span><span class="off">4</span></li>
-              <li class="key"><span>t</span><span class="off">5</span></li>
-              <li class="key"><span>y</span><span class="off">6</span></li>
-              <li class="key"><span>u</span><span class="off">7</span></li>
-              <li class="key"><span>i</span><span class="off">8</span></li>
-              <li class="key"><span>o</span><span class="off">9</span></li>
-              <li class="key"><span>p</span><span class="off">0</span></li>
-              <li class="key"><span>:</span><span class="off">~</span></li>
-              <li class = "side" data-onclick="deleteKey">Delete</li>
-            </ul>
-          </div>
-          <div class="floatleft">
-            <ul class="keyrow keyrowshort">
-              <li class = "side" data-onclick="toggleCapsLock">CapsLock</li>
-              <li class="key"><span>a</span><span class="off">[</span></li>
-              <li class="key"><span>s</span><span class="off">]</span></li>
-              <li class="key"><span>d</span><span class="off">{</span></li>
-              <li class="key"><span>f</span><span class="off">}</span></li>
-              <li class="key"><span>g</span><span class="off">\</span></li>
-              <li class="key"><span>h</span><span class="off">|</span></li>
-              <li class="key"><span>j</span><span class="off">!</span></li>
-              <li class="key"><span>k</span><span class="off">#</span></li>
-              <li class="key"><span>l</span><span class="off">$</span></li>
-              <li class="key"><span>;</span><span class="off">£</span></li>
-              <li class="key"><span>@</span><span class="off">^</span></li>
-              <li class = "side" data-onclick="toggleSymbols">Shift</li>
-              <li class="key"><span>z</span><span class="off">(</span></li>
-              <li class="key"><span>x</span><span class="off">)</span></li>
-              <li class="key"><span>c</span><span class="off">*</span></li>
-              <li class="key"><span>v</span><span class="off">+</span></li>
-              <li class="key"><span>b</span><span class="off">%</span></li>
-              <li class="key"><span>n</span><span class="off">/</span></li>
-              <li class="key"><span>m</span><span class="off">?</span></li>
-              <li class="key"><span>&quot;</span><span class="off">&amp;</span></li>
-              <li class="key"><span>-</span><span class="off">_</span></li>
-              <li class="key"><span>,</span><span class="off">&lt;</span></li>
-              <li class="key"><span>.</span><span class="off">&gt;</span></li>
-            </ul>
-          </div>
-          <ul class="keyrow keyrowreturn"> 
-            <li id="return">Return</li>
-          </ul>
-          <ul class="keyrow"> 
-            <li id="space">&nbsp;</li>
-          </ul>
-        </div>
-    </div>
+  <div id="group">
+    <canvas id="canvasGL" width="800"></canvas>
+    <virtual-keyboard></virtual-keyboard>
   </div>
 </body>
+
 <script type="text/javascript" src="../depth-camera.js"></script>
 <script type="text/javascript" src="front_capture_typing.js"></script>
 <script type="text/javascript">
@@ -170,8 +237,8 @@ var init_done = false;
 video.addEventListener("play", frameLoop);
 var video_last_upload_time = -1;
 
-video.oncanplay = function(){
-  video_loaded=true;
+video.oncanplay = function() {
+  video_loaded = true;
   init_done = false;
 }
 
@@ -180,12 +247,13 @@ function frameLoop() {
     touch_listener_added = true;
     window.addEventListener("touchstart", onVideoTouchStart, true);
   }
-  
+
   if (video_loaded) {
     if (video_last_upload_time == video.currentTime) {
       window.requestAnimationFrame(frameLoop);
       return;
     }
+
     video_last_upload_time = video.currentTime;
     if (!init_done) {
       gl.videoLoaded(video);
@@ -201,6 +269,7 @@ function frameLoop() {
     } else {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, gl.RGBA, gl.FLOAT, video);
     }
+
     gl.enable(gl.RASTERIZER_DISCARD);
     gl.useProgram(gl.compute_program);
     gl.bindVertexArray(gl.process_vao);
@@ -218,6 +287,7 @@ function frameLoop() {
     extractMinumums();
     gl.bindVertexArray(gl.render_vao);
   }
+
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
   gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
 
@@ -243,6 +313,7 @@ var canvasGL = document.getElementById("canvasGL");
 var hover_node;
 var queue = [];
 function processCurrentPos() {
+
   var selected_node;
   if (current_pos) {
     const rect = canvasGL.getBoundingClientRect();
@@ -277,31 +348,28 @@ function processCurrentPos() {
   }
 }
 
-function keyFromPoint(abs_x, abs_y) {
-  var node = document.elementFromPoint(abs_x, abs_y);
-  if (!node)
-    return undefined;
-  while (node.parentNode && node.nodeName != "LI")
-    node = node.parentNode;
-  return (node.parentNode &&
-          node.parentNode.classList.contains("keyrow")) ? node : undefined;
-}
-
 var finger_down_treshold = Number.MAX_VALUE;
+
 function processClick(rect) {
   if (queue.length < 4)
     return false;
+
   var pos2 = queue[queue.length - 2];
   var pos1 = queue[queue.length - 1];
+
   // pos2 should be a minimum.
   if (current_pos.depth < pos2.depth || pos1.depth < pos2.depth)
     return false;
+
   if (!areFromTheSameFinger(pos1, pos2) && !areFromTheSameFinger(current_pos, pos2))
     return false;
+
   var pos3 = queue[queue.length - 3];
   if (pos2.depth + finger_down_treshold / 2 > current_pos.depth &&
-      pos2.depth + finger_down_treshold / 2 > pos1.depth)
+      pos2.depth + finger_down_treshold / 2 > pos1.depth) {
     return false;
+  }
+
   if (!areFromTheSameFinger(pos2, pos3)) {
     // Some other finger might be detected when moving up/down so check around.
     if (!areFromTheSameFinger(pos2, queue[queue.length - 4]))
@@ -310,18 +378,23 @@ function processClick(rect) {
   const scaled_pos2_x = pos2.x * rect.width / video.videoWidth;
   const scaled_pos2_y = pos2.y * rect.height / video.videoHeight;
   const node2 = keyFromPoint(scaled_pos2_x + rect.left, scaled_pos2_y + rect.top);
+
   const scaled_pos3_x = pos3.x * rect.width / video.videoWidth;
   const scaled_pos3_y = pos3.y * rect.height / video.videoHeight;
   const node3 = keyFromPoint(scaled_pos3_x + rect.left, scaled_pos3_y + rect.top);
 
   const node1 = keyFromPoint(pos1.x * rect.width / video.videoWidth + rect.left,
                                      pos3.y * rect.height / video.videoHeight + rect.top);
-  if (!node2 && !node3)
+
+  if (!node2 && !node3) {
     return false;
+  }
 
   var node = node2;
-  if (!node)
+  if (!node) {
     node = node3;
+  }
+
   var finger_down = false;
   // Look for the finger down movement.
   for (var i = queue.length - 2; i > 2; --i) {
@@ -342,11 +415,13 @@ function processClick(rect) {
   if (!finger_down && queue[1].depth < queue[0].depth - finger_down_treshold
       && areFromTheSameFinger(queue[1], queue[0]))
     finger_down = true;
-  
+
   if (!finger_down)
     return false;
 
-  buttonClicked(node);
+  const keyboard = document.querySelector('virtual-keyboard');
+  keyboard.buttonClicked(node);
+
   return true;
 }
 
@@ -388,84 +463,132 @@ function reload() {
 
 function onLoad() {
   gl = GL("canvasGL");
-  
+
   reload();
 }
 
-const keyboard = document.getElementById("keyboard");
-const editor = document.getElementById("editor");
-keyboard.addEventListener("click", function( event ) {
-    var node = document.elementFromPoint(event.clientX, event.clientY);
-    if (node)
-      buttonClicked(node);
-  }, false);
-keyboard["symbols_on"] = false;
-keyboard["capslock"] = false;
+customElements.define('virtual-keyboard', class extends HTMLElement {
+  constructor() {
+    super();
+    const template = document.querySelector('#virtual-keyboard');
+    const clone = document.importNode(template.content, true);
+    const shadowRoot = this.attachShadow({ mode: 'open' });
+    this.shadowRoot.appendChild(clone);
 
-function toggleSymbols() {
-  keyboard.symbols_on = !keyboard.symbols_on;
-  const span_on = keyboard.symbols_on ? 1 : 0;
-  const span_off = keyboard.symbols_on ? 0 : 1;
-  Array.from(keyboard.getElementsByClassName("key")).forEach(
-    function(element) {
-      element.children[span_on].classList.remove("off");
-      element.children[span_off].classList.add("off");
-    });
-}
+    this.editor = this.shadowRoot.querySelector("#editor");
 
-function toggleCapsLock() {
-  keyboard.capslock = !keyboard.capslock;
-  Array.from(keyboard.getElementsByClassName("key")).forEach(
-    function(element) {
-      if (keyboard.capslock)
-        element.classList.add("capslock");
-      else
-        element.classList.remove("capslock");
-    });
-}
+    this.addEventListener("click", ev => {
+      const node = this.shadowRoot.elementFromPoint(ev.clientX, ev.clientY);
+      if (node) {
+        this.buttonClicked(node);
+      }
+    }, false);
 
-function deleteKey() {
-  editor.defaultValue = editor.defaultValue.slice(0, -1);
-}
-
-function buttonClicked(button) {
-  if (button.nodeName != "LI")
-    return;
-
-  const onclick = button.getAttribute("data-onclick");
-  if (onclick) {
-    window[onclick]();
-    return;
+    this.symbolsEnabled = false;
+    this.shiftEnabled = false;
   }
 
-  let key = button.innerText;
-  
-  switch (button.id) {
-    case "space":
-      key = " ";
-      break;
-    case "tab":
-      key = "\t";
-      break;
-    case "return":
-      key = "\n";
-      break;
-    default:
-      break;
+  keyFromPoint(abs_x, abs_y) {
+    let node = this.shadowRoot.elementFromPoint(abs_x, abs_y);
+    if (!node) {
+      return undefined;
+    }
+
+    // Check for max children.
+    while (node.parentNode && !node.classList.contains("key")) {
+      node = node.parentNode;
+    }
+
+    if (!node.classList.contains("key")) {
+      return;
+    }
+
+    return node;
   }
 
-  // TODO: double click should make symbols stay after first character.
-  if (keyboard.symbols_on)
-    toggleSymbols();
-  editor.defaultValue = editor.defaultValue + key;
+  toggleSymbols() {
+    let value = !this.symbolsEnabled;
 
-  if (key == '.' && !keyboard.capslock)
-    toggleCapsLock();
-  if (keyboard.capslock && key.toLowerCase() != key.toUpperCase())
-    toggleCapsLock();
-}
+    this.symbolsEnabled = value;
+
+    const enable = value ? 1 : 0;
+    const disable = value ? 0 : 1;
+
+    for (let el of Array.from(this.shadowRoot.querySelectorAll(".key"))) {
+      if (el.children.length == 2) {
+        el.children[enable].classList.remove("off");
+        el.children[disable].classList.add("off");
+      }
+    }
+  }
+
+  toggleCapslock() {
+    this.toggleShift();
+    this.capslockEnabled = this.shiftEnabled;
+  }
+
+  toggleShift() {
+    let value = !this.shiftEnabled;
+
+    this.shiftEnabled = value;
+
+    // Direct shift clears capslock. Capslock will reapply.
+    this.capslockEnabled = false;
+
+    const enable = value ? 1 : 0;
+    const disable = value ? 0 : 1;
+
+    for (let el of Array.from(this.shadowRoot.querySelectorAll(".key"))) {
+      if (el.children.length == 2) {
+        el.children[enable].classList.remove("shift");
+        el.children[disable].classList.add("shift");
+      }
+    }
+  }
+
+  deleteKey() {
+    this.editor.defaultValue = this.editor.defaultValue.slice(0, -1);
+  }
+
+  buttonClicked(button) {
+    if (!button.classList.contains("key"))
+      return;
+
+    const onclick = button.getAttribute("data-onclick");
+    if (onclick) {
+      return this[onclick]();
+    }
+
+    let key = button.innerText;
+
+    switch (button.id) {
+      case "space":
+        key = " ";
+        break;
+      case "tab":
+        key = "\t";
+        break;
+      case "return":
+        key = "\n";
+        break;
+      default:
+        break;
+    }
+
+    // TODO: double click should make symbols stay after first character.
+    if (this.symbolsEnabled)
+      this.toggleSymbols();
+
+    this.editor.defaultValue = this.editor.defaultValue + key;
+
+    if (key == '.' && !this.capslockEnabled)
+      this.toggleShift();
+
+    if (this.shiftEnabled && !this.capslockEnabled && key.toLowerCase() != key.toUpperCase())
+      this.toggleShift();
+  }
+});
 
 </script>
 
 </html>
-
