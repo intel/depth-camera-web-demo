@@ -5,7 +5,7 @@
 <td align="center" valign="center">
 <img src="typing_in_the_air/typing_in_the_air.gif" alt="typing_in_the_air.gif is not yet loaded." style="height:400px;width:702px;"/>
 <br />
-<p>Typing in the air tutorial shows how to use depth stream and WebGL transform feedback to do simple gesture recognition. Check the <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/doc/tutorial.html">tutorial text</a> and <a href="typing_in_the_air/front_capture_typing.html">run the live demo here.</a></p>
+<p>Typing in the air tutorial shows how to use depth stream and WebGL transform feedback to do simple gesture recognition. Check the <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/doc/tutorial.html">tutorial text</a> and <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/front_capture_typing.html">run the live demo here.</a></p>
 </td>
 <td align="center" valign="center">
 <img src="https://github.com/01org/depthcamera-pointcloud-web-demo/raw/master/recording.gif" alt="https://github.com/01org/depthcamera-pointcloud-web-demo/raw/master/recording.gif is not yet loaded." style="height:400px;width:422px;"/>
@@ -17,7 +17,7 @@
 <td align="center" valign="center">
 <img src="how_the_demo_looks.gif" alt="how_the_demo_looks.gif is not yet loaded." style="height:400px;width:452px;"/>
 <br />
-<p>HTML5 Depth Capture tutorial shows how to access depth stream, check the <a href="https://01.org/chromium/blogs/astojilj/2017/depth-camera-capture-html5">tutorial text</a> or <a href="depthdemo.html">run the live demo here.</a></p>
+<p>HTML5 Depth Capture tutorial shows how to access depth stream, check the <a href="https://01.org/chromium/blogs/astojilj/2017/depth-camera-capture-html5">tutorial text</a> or <a href="https://01org.github.io/depth-camera-web-demo/depthdemo.html">run the live demo here.</a></p>
 </td>
 </tr>
 </table>
