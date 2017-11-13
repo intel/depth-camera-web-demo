@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Depth Capture Based Hand Interaction Demo</title>
+  <script src="../libs/ammo.js/ammo.js"></script>
+  <script src="../libs/gl-matrix.js"></script>
+  <script src="../libs/picogl.js/picogl.js"></script>
+  <script src="../libs/picogl.js/utils.js"></script>
+  <script src="../depth-camera.js"></script>
+  <script src="depth_and_segments.js"></script>
+</head>
+<style>
+html {
+  overflow: hidden;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: 'Roboto', 'Noto', sans-serif;
+  line-height: 1.5;
+  background-color: #fbfbfb;
+  margin: 0;
+  text-align:center;
+}
+.info {
+  position: absolute;
+  top: 0px; width: 100%;
+  padding: 5px;
+  color: gray;
+}
+#timer {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  color: white;
+}
+</style>
+<body>
+  <div class="info">
+    Hand physics - depth camera capture demo.
+    <div>
+      <a href="https://github.com/01org/depth-camera-web-demo">Source code on GitHub</a>
+    </div>
+      <div id="errormessages" style="color: red; font-size: x-large;"></div>
+
+  </div>
+  <canvas id="gl-canvas"></canvas>
+  <script id="shadow-vs" type="x-vertex-shader">
+    #version 300 es
+
+    layout(location=0) in vec4 aPosition;
+
+    uniform mat4 uMVP;
+    void main() {
+      gl_Position = uMVP * aPosition;
+    }
+  </script>
+  <script id="shadow-fs" type="x-fragment-shader">
+    #version 300 es
+    precision highp float;
+
+    void main() {
+    
+    }
+  </script> 
+  <script id="main-vs" type="x-vertex-shader">
+    #version 300 es
+
+    layout(location=0) in vec4 aPosition;
+    layout(location=1) in vec3 aNormal;
+    layout(location=2) in vec2 aTexCoord;
+
+    uniform mat4 uModelMatrix;
+    uniform mat4 uMVP;
+    uniform mat4 uMVPFromLight;
+    
+    out vec3 vPosition;
+    out vec3 vNormal;
+    out vec2 vTexCoord;
+    out vec4 vPositionFromLight;
+    out vec3 vModelPosition;
+    void main() {
+      gl_Position = uMVP * aPosition;
+
+      vModelPosition = vec3(aPosition);
+      vPosition = vec3(uModelMatrix * aPosition);
+      vNormal = vec3(uModelMatrix * vec4(aNormal, 0.0));
+      vTexCoord = aTexCoord;
+
+      vPositionFromLight = uMVPFromLight * aPosition;
+    }
+  </script>
+  <script id="main-fs" type="x-fragment-shader">
+    #version 300 es
+    precision highp float;
+    precision highp sampler2DShadow;
+
+    uniform vec3 uLightPosition;
+    uniform vec3 uEyePosition;
+    uniform sampler2D uTextureMap;
+    uniform sampler2DShadow uShadowMap;
+
+    in vec3 vPosition;
+    in vec3 vNormal;
+    in vec2 vTexCoord;
+    in vec4 vPositionFromLight;
+    in vec3 vModelPosition;
+
+    out vec4 fragColor;
+    void main() {
+      vec3 shadowCoord = (vPositionFromLight.xyz / vPositionFromLight.w) / 2.0 + 0.5;
+      shadowCoord.z -= 0.01;
+      float shadow = texture(uShadowMap, shadowCoord);
+
+      vec4 baseColor = texture(uTextureMap, vTexCoord);
+
+      vec3 normal = normalize(vNormal);
+      vec3 eyeDirection = normalize(uEyePosition - vPosition);
+      vec3 lightDirection = normalize(uLightPosition - vPosition);
+      vec3 reflectionDirection = reflect(-lightDirection, normal);
+      float diffuse = shadow * max(dot(lightDirection, normal), 0.0) * 0.7;
+      float ambient = 0.3;
+      float specular = shadow * pow(max(dot(reflectionDirection, eyeDirection), 0.0), 20.0) * 0.7;
+
+      fragColor = vec4((ambient + diffuse + specular) * baseColor.rgb, baseColor.a);
+    }
+  </script> 
+  <script type="text/javascript">
+    "use strict";
+    utils.addTimerElement();
+
+    var canvas = document.getElementById("gl-canvas");
+    if (!utils.testWebGL2()) {
+      console.error("WebGL 2 not available");
+      document.body.innerHTML = "This example requires WebGL 2 which is unavailable on this system."
+    }
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    var app = PicoGL.createApp(canvas)
+    .clearColor(0.0, 0.0, 0.0, 1.0)
+    .depthTest()
+    .cullBackfaces();
+
+    let physics;
+    let depthseg = new DepthAndSegments(app.gl);
+
+    var timer = app.createTimer();
+
+    // SET UP SHADOW PROGRAM
+    var shadowVsSource =  document.getElementById("shadow-vs").text.trim();
+    var shadowFsSource =  document.getElementById("shadow-fs").text.trim();
+    var shadowProgram = app.createProgram(shadowVsSource, shadowFsSource);
+    var shadowBuffer = app.createFramebuffer().depthTarget({compareMode: PicoGL.COMPARE_REF_TO_TEXTURE});
+
+    // SET UP MAIN PROGRAM
+    var vsSource =  document.getElementById("main-vs").text.trim();
+    var fsSource =  document.getElementById("main-fs").text.trim();
+    var mainProgram = app.createProgram(vsSource, fsSource);
+
+    // GEOMETRY
+    var box = utils.createBox({dimensions: [1.0, 1.0, 1.0]})
+    var positions = app.createVertexBuffer(PicoGL.FLOAT, 3, box.positions);
+    var normals = app.createVertexBuffer(PicoGL.FLOAT, 3, box.normals);
+    var uv = app.createVertexBuffer(PicoGL.FLOAT, 2, box.uvs);
+
+    var boxArray = app.createVertexArray()
+        .vertexAttributeBuffer(0, positions)
+        .vertexAttributeBuffer(1, normals)
+        .vertexAttributeBuffer(2, uv);
+
+    let plane_uvs = box.uvs.slice(0);
+    // Tile them to 20x20.
+    for (let i = 0; i < plane_uvs.length; i++)
+      plane_uvs[i] = plane_uvs[i] * 12;
+    var plane_uv = app.createVertexBuffer(PicoGL.FLOAT, 2, plane_uvs);
+    let planeArray = app.createVertexArray()
+        .vertexAttributeBuffer(0, positions)
+        .vertexAttributeBuffer(1, normals)
+        .vertexAttributeBuffer(2, plane_uv);
+
+    // UNIFORMS
+    var projMatrix = mat4.create();
+    var viewMatrix = mat4.create();
+    var eyePosition = vec3.fromValues(0, 0.3, 0.4);
+    mat4.lookAt(viewMatrix, eyePosition, vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
+
+    var viewProjMatrix = mat4.create();
+    let inverseViewProjMatrix = mat4.create();
+    let depth_mvp = depthseg.getMVPMatrix();
+    const depth_to_world_transform = mat4.create();
+    const world_to_depth_transform = mat4.create();
+
+    var lightPosition = vec3.fromValues(0.7, 0.5, 0.1); 
+    var lightViewMatrix = mat4.create();
+    var lightViewProjMatrix = mat4.create();
+    const light_position_depth = vec3.create();
+    mat4.lookAt(lightViewMatrix, lightPosition, vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
+    updateMatrices();    
+
+    function updateMatrices() {
+      mat4.perspective(projMatrix, Math.PI / 2, app.width / app.height, 0.1, 10.0);
+      mat4.multiply(viewProjMatrix, projMatrix, viewMatrix);
+      mat4.multiply(lightViewProjMatrix, projMatrix, lightViewMatrix);
+      mat4.invert(inverseViewProjMatrix, viewProjMatrix);
+      depth_mvp = depthseg.getMVPMatrix();
+      mat4.multiply(depth_to_world_transform, inverseViewProjMatrix, depth_mvp);
+      mat4.invert(world_to_depth_transform, depth_to_world_transform);
+      vec3.transformMat4(light_position_depth, lightPosition, world_to_depth_transform);
+    }
+
+    // OBJECT DESCRIPTIONS
+    var boxes = [
+      {
+        translate: [0, 0, 0],
+        quat: [0, 0, 0, 1],
+        scale: [3, 0.05, 3],
+        mvpMatrix: mat4.create(),
+        modelMatrix: mat4.create(),
+        lightMvpMatrix: mat4.create(),
+        mainDrawCall: null,
+        shadowDrawCall: null,
+        array: planeArray,
+        mass: 0, // ground
+        visible: true,
+        ground: 1,
+      },
+      {
+        translate: [0.1, 0.075, 0],
+        quat: [0, 0, 0, 1],
+        scale: [0.1, 0.1, 0.1],
+        mvpMatrix: mat4.create(),
+        modelMatrix: mat4.create(),
+        lightMvpMatrix: mat4.create(),
+        mainDrawCall: null,
+        shadowDrawCall: null,
+        array: boxArray,
+        mass: 0.5,
+        visible: true,
+      },
+      {
+        translate: [0.3, 0.175, 0],
+        quat: [0, 0, 0, 1],
+        scale: [0.1, 0.1, 0.1],
+        mvpMatrix: mat4.create(),
+        modelMatrix: mat4.create(),
+        lightMvpMatrix: mat4.create(),
+        mainDrawCall: null,
+        shadowDrawCall: null,
+        array: boxArray,
+        mass: 0.5,
+        visible: true,
+      },
+      {
+        translate: [-0.1, 0.275, 0],
+        quat: [0, 0, 0, 1],
+        scale: [0.1, 0.1, 0.1],
+        mvpMatrix: mat4.create(),
+        modelMatrix: mat4.create(),
+        lightMvpMatrix: mat4.create(),
+        mainDrawCall: null,
+        shadowDrawCall: null,
+        array: boxArray,
+        mass: 0.5,
+        visible: true
+      },
+    ];
+
+    // Finger bones pool. Instantiate pool and hide them.
+    const POOL_OFFSET = boxes.length;
+    const box_pool = {};
+    for (let i = 0.02; i < 0.07; i += 0.001) {
+      const box = {
+        translate: [0, 0.175, 0],
+        quat: [0, 0, 0, 1],
+        scale: [0.02, i, 0.02],
+        mvpMatrix: mat4.create(),
+        modelMatrix: mat4.create(),
+        lightMvpMatrix: mat4.create(),
+        mainDrawCall: null,
+        shadowDrawCall: null,
+        array: boxArray,
+        mass: 0,
+        visible: false,
+        frameid: 0
+      };
+      boxes.push(box);
+      box_pool[(i * 1000) | 0] = box;
+    }
+    
+    window.onresize = function() {
+      app.resize(window.innerWidth, window.innerHeight);
+      shadowBuffer.resize();
+      updateMatrices();
+    };
+
+    let images = [];
+    let images_loaded = 0;
+    function image_onload() {
+      images_loaded++;
+      if (images_loaded < images.length)
+        return; // and wait for all to load.
+      allImagesLoaded();
+    }
+
+    function allImagesLoaded() {
+      let texture = app.createTexture2D(images[0], { flipY: true });
+      let grid = app.createTexture2D(images[1], {});
+      let bone = app.createTexture2D(images[2], {});
+
+      function setupDraw(box) {
+        box.shadowDrawCall = app.createDrawCall(shadowProgram, box.array);
+        box.mainDrawCall = app.createDrawCall(mainProgram, box.array)
+        .uniform("uLightPosition", lightPosition)
+        .uniform("uEyePosition", eyePosition)
+        .texture("uTextureMap", box.hasOwnProperty("frameid") ? bone :
+                                box.hasOwnProperty("ground") ? grid : texture)
+        .texture("uShadowMap", shadowBuffer.depthTexture);
+      }
+
+      // DRAW CALLS
+      for (var i = 0, len = boxes.length; i < len; ++i) {
+        setupDraw(boxes[i]);
+      }
+
+      // Physics setup
+      var collisionConfiguration = new Ammo.btDefaultCollisionConfiguration();
+      var dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);
+      var pairCache = new Ammo.btDbvtBroadphase();
+      var solver = new Ammo.btSequentialImpulseConstraintSolver();
+      physics = new Ammo.btDiscreteDynamicsWorld(dispatcher, pairCache, solver,collisionConfiguration);
+      const gravity = new Ammo.btVector3(0, -9.81, 0);
+      physics.setGravity(gravity);
+      let transform = new Ammo.btTransform();
+      // btCollisionObjects.h constants.
+      const DISABLE_DEACTIVATION = 4;
+      const WANTS_DEACTIVATION = 3;
+      const CF_KINEMATIC_OBJECT = 2;
+      let frameid = 0;
+      let previous_frameid = 0;
+
+      function createRigidBody(box) {
+        let shape = new Ammo.btBoxShape(new Ammo.btVector3(box.scale[0] * 0.5, box.scale[1] * 0.5, box.scale[2] * 0.5));
+        transform.setIdentity();
+        transform.setOrigin(new Ammo.btVector3(box.translate[0], box.translate[1], box.translate[2]));
+        transform.setRotation(new Ammo.btQuaternion(box.quat[0], box.quat[1], box.quat[2], box.quat[3]));
+        let motionState = new Ammo.btDefaultMotionState(transform);
+
+        let localInertia = new Ammo.btVector3(0, 0, 0);
+        shape.calculateLocalInertia(box.mass, localInertia);
+
+        let info = new Ammo.btRigidBodyConstructionInfo(box.mass, motionState, shape, localInertia);
+        if (box.hasOwnProperty("frameid")) 
+          info.m_friction = 10.0; // high friction for hands.
+        let body = new Ammo.btRigidBody(info);
+        if (body.hasOwnProperty("frameid"))
+          body.setCollisionFlags(body.getCollisionFlags() | CF_KINEMATIC_OBJECT);
+        box.physics_body = body;
+        if (box.mass > 0)
+          body.setActivationState(DISABLE_DEACTIVATION);
+        if (!box.visible)
+          return;
+        physics.addRigidBody(body);
+      }
+
+      function updatePhysics(time_delta) {
+        physics.stepSimulation(time_delta, 10);
+        for (let i = 1; i < boxes.length; i++) {
+          let box = boxes[i];
+          let state = box.physics_body.getMotionState();
+          if (!state)
+            continue;
+          state.getWorldTransform(transform);
+          let t = transform.getOrigin();
+          let q = transform.getRotation();
+          box.translate[0] = t.x();
+          box.translate[1] = t.y();
+          box.translate[2] = t.z();
+          box.quat[0] = q.x();
+          box.quat[1] = q.y();
+          box.quat[2] = q.z();
+          box.quat[3] = q.w();
+        }
+      }
+
+      const center = new glMatrix.ARRAY_TYPE(3);
+      const world_center = new glMatrix.ARRAY_TYPE(3);
+      const base = new glMatrix.ARRAY_TYPE(3);
+      const world_base = new glMatrix.ARRAY_TYPE(3);
+      const subtract = new glMatrix.ARRAY_TYPE(3);
+      const draw_transform = mat4.create();
+      const yUnitVec3 = vec3.fromValues(0,1,0);
+
+      function getBoxFromPool(length) {
+        const k = Math.max(20, Math.min((length * 1000) | 0, 69));
+        for(let i = k; i >= 20; i--) {
+          if (box_pool[i].frameid == frameid)
+            continue;
+          return box_pool[i];
+        }
+        for (let i = k + 1; i < 70; i++) {
+          if (box_pool[i].frameid == frameid)
+            continue;
+          return box_pool[i];
+        }
+        console.error("TODO: add boxes when not in pool");
+      }
+
+      function updateFingerSegments() {
+        // Convert scanned point values |p| to 3D |v|.
+        function convertTo3D(v, x, y, d) {
+          const depth = depthseg.depth_scale * d + 0.007;
+          v[0] = depth * (x - depthseg.depth_offset_x) * depthseg.depth_focal_inv_x;
+          v[1] = depth * (y - depthseg.depth_offset_y) * depthseg.depth_focal_inv_y;          
+          v[2] = depth;
+        };
+
+        function getSegEndPointsIn3D(seg) {
+          // TODO: fix horizontal orientation
+          const p1 = seg;
+          const p2 = (seg.count_left > seg.count_right) ? seg.far_left : seg.far_right;
+          convertTo3D(center, (p1.x + p2.x) * 0.5, (p1.y + p2.y) * 0.5, (p1.depth + p2.depth) * 0.5); 
+          vec3.transformMat4(world_center, center, depth_to_world_transform);
+          convertTo3D(base, p1.x, p1.y, p1.depth); 
+          vec3.transformMat4(world_base, base, depth_to_world_transform);
+        };
+
+        function getMatchingPreviousFrameBox() {
+          let nearest = Number.MAX_VALUE;
+          let nearest_box = null;
+          for (let i = POOL_OFFSET, len = boxes.length; i < len; ++i) {
+            const box = boxes[i];
+            if (box.frameid != previous_frameid || box.segment)
+              continue;
+            const squared_distance = vec3.squaredDistance(box.translate, world_center);
+            if (squared_distance < nearest) {
+              nearest = squared_distance;
+              nearest_box = box;
+            }
+          }
+          if (nearest < 0.0004) // 2cm
+            return nearest_box;
+          return null;
+        }
+
+        function moveBoxToNewPosition(box, c, b) {
+          vec3.copy(box.translate, c);
+          vec3.subtract(subtract, b, c);
+          vec3.normalize(subtract, subtract);
+          // We need rotation from initial Y stick shape to finger.
+          quat.rotationTo(box.quat, yUnitVec3, subtract);
+        }
+
+        const segment_data = depthseg.out.segment_data;
+        let keys = Object.keys(depthseg.out.segment_data);
+        // Identify fingers and propagate previous frame boxes to new.
+        for (let k = 0; k < keys.length; k++) {
+          const segment = segment_data[keys[k]];
+          // Ignore small segments
+          if (segment.count_left + segment.count_right < 5 ||
+            segment.far_left.distance + segment.far_right.distance < 100) {
+            segment.discarded = true;
+            continue;            
+          }
+          getSegEndPointsIn3D(segment);
+          let box = getMatchingPreviousFrameBox();
+          if (!box) {
+            // copy point values for next step and getting boxes from pool.
+            segment.world_center = [0, 0, 0];
+            segment.world_base = [0, 0, 0];
+            vec3.copy(segment.world_center, world_center);
+            vec3.copy(segment.world_base, world_base);            
+            continue;
+          }
+          moveBoxToNewPosition(box, world_center, world_base);
+          box.segment = segment;
+          segment.box = box;
+        }
+
+        for (let k = 0; k < keys.length; k++) {
+          const segment = segment_data[keys[k]];
+          if (segment.hasOwnProperty("discarded"))
+            continue;
+          if (!segment.box) {
+            // Get the box from the pool.
+            const b = getBoxFromPool(vec3.distance(segment.world_center, segment.world_base) * 2);
+            segment.box = b;
+            b.segment = segment;
+            moveBoxToNewPosition(b, segment.world_center, segment.world_base);
+          }
+          const box = segment.box;
+          // box.visible = true;
+          // reposition the body and add to physics world.
+          const body = box.physics_body;
+          transform.setIdentity();
+          transform.setOrigin(new Ammo.btVector3(box.translate[0], box.translate[1], box.translate[2]));
+          transform.setRotation(new Ammo.btQuaternion(box.quat[0], box.quat[1], box.quat[2], box.quat[3]));
+          body.setWorldTransform(transform);
+          body.getMotionState().setWorldTransform(transform);
+          if (box.frameid == 0)
+            physics.addRigidBody(body);
+          box.frameid = frameid;
+        }
+        for (let i = POOL_OFFSET, len = boxes.length; i < len; ++i) {
+          const box = boxes[i];
+          if (box.frameid == previous_frameid)
+            physics.removeRigidBody(box.physics_body);
+          box.segment = null;
+          if (box.frameid != frameid) {
+            box.frameid = 0;
+            box.visible = false;
+          }
+        }
+      }
+
+      for (var i = 0, len = boxes.length; i < len; ++i)
+        createRigidBody(boxes[i]);
+
+      let timestamp = performance.now();
+
+      function draw() {
+        if (timer.ready()) {
+          utils.updateTimerElement(timer.cpuTime, timer.gpuTime);
+        }
+        previous_frameid = frameid;
+        frameid = ((frameid + 1) & 0xFFFFFFFF) || 1;
+
+        timer.start();
+        const gl = depthseg.gl;
+        gl.clear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT); 
+        if (depthseg.process())
+          updateFingerSegments();
+
+        // Update physics.
+        const now = performance.now();
+        updatePhysics((now - timestamp) * 0.001);
+        timestamp = now;
+
+        // Update graphics.
+        for (var i = 0, len = boxes.length; i < len; ++i) {
+          if (!boxes[i].visible)
+            continue;
+          mat4.fromRotationTranslationScale(boxes[i].modelMatrix, boxes[i].quat, boxes[i].translate, boxes[i].scale);
+          mat4.multiply(boxes[i].mvpMatrix, viewProjMatrix, boxes[i].modelMatrix);
+          mat4.multiply(boxes[i].lightMvpMatrix, lightViewProjMatrix, boxes[i].modelMatrix);
+          
+          boxes[i].mainDrawCall.uniform("uMVP", boxes[i].mvpMatrix)
+          .uniform("uModelMatrix", boxes[i].modelMatrix)
+          .uniform("uMVPFromLight", boxes[i].lightMvpMatrix);
+          boxes[i].shadowDrawCall.uniform("uMVP", boxes[i].lightMvpMatrix);
+        }
+
+        // Draw to shadow buffer.
+        app.drawFramebuffer(shadowBuffer).clear();
+        for (var i = 0, len = boxes.length; i < len; ++i) {
+          if (boxes[i].visible)
+            boxes[i].shadowDrawCall.draw();
+        }
+        mat4.multiply(draw_transform, lightViewProjMatrix, depth_to_world_transform);
+        depthseg.draw(draw_transform);
+
+        // Draw to screen.
+        app.defaultDrawFramebuffer().clear()
+        for (var i = 0, len = boxes.length; i < len; ++i) {
+          if (boxes[i].visible)
+            boxes[i].mainDrawCall.draw();
+        }
+        depthseg.draw(depth_mvp, draw_transform, light_position_depth, shadowBuffer.depthTexture.currentUnit);
+
+        timer.end();
+        requestAnimationFrame(draw);
+      }
+      requestAnimationFrame(draw);        
+    };
+ 
+    for (let i = 0; i < 3; i++) {
+      images.push(new Image());
+      images[i].onload = image_onload;
+    }
+    images[0].src = "webgl.png";
+    images[1].src = "grid.png";
+    images[2].src = "bone.png";
+  </script>
+</body>
+</html>
+
+<!--
+This code is reusing some of the code from  picogl.js/examples/shadow.html, so 
+including the license.
+-->
+<!--
+  The MIT License (MIT)
+
+  Copyright (c) 2017 Tarek Sherif
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of
+  this software and associated documentation files (the "Software"), to deal in
+  the Software without restriction, including without limitation the rights to
+  use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+  the Software, and to permit persons to whom the Software is furnished to do so,
+  subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+  FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+  COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+  IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->

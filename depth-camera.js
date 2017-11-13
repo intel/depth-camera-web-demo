@@ -131,12 +131,12 @@
         : label.includes(") 4") ? "generic4"
         : label;
 
-    var DistortionModel = {
+    const DistortionModel = {
       NONE: 0,
       MODIFIED_BROWN_CONRADY: 1,
       INVERSE_BROWN_CONRADY: 2,
     };
-    var result;
+    let result;
     if (cameraName === "R200")  {
       result = {
         depthScale: 0.001,

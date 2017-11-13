@@ -3,9 +3,9 @@
 <table cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: none;">
 <tr>
 <td align="center" valign="center">
-<img src="typing_in_the_air/typing_in_the_air.gif" alt="typing_in_the_air.gif is not yet loaded." style="height:400px;width:702px;"/>
+<img src="gesture/hands_interaction.gif" alt="hands_interaction.gif is not yet loaded." style="width:702px;"/>
 <br />
-<p>Typing in the air tutorial shows how to use depth stream and WebGL transform feedback to do simple gesture recognition. Check the <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/doc/tutorial.html">tutorial text</a> and <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/front_capture_typing.html">run the live demo here.</a></p>
+<p>Moving boxes using hands demo shows live depth captured mesh interaction with scene objects; combining 3D world and depth captured hands (or other objects) rendering and Bullet Physics. <a href="https://01org.github.io/depth-camera-web-demo/gesture/index.html">Run the live demo here.</a></p>
 </td>
 <td align="center" valign="center">
 <img src="https://github.com/01org/depthcamera-pointcloud-web-demo/raw/master/recording.gif" alt="https://github.com/01org/depthcamera-pointcloud-web-demo/raw/master/recording.gif is not yet loaded." style="height:400px;width:422px;"/>
@@ -15,6 +15,11 @@
 </tr>
 <tr>
 <td align="center" valign="center">
+<img src="typing_in_the_air/typing_in_the_air.gif" alt="typing_in_the_air.gif is not yet loaded." style="height:400px;width:702px;"/>
+<br />
+<p>Typing in the air tutorial shows how to use depth stream and WebGL transform feedback to do simple gesture recognition. Check the <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/doc/tutorial.html">tutorial text</a> and <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/front_capture_typing.html">run the live demo here.</a></p>
+</td>
+<td align="center" valign="center">
 <img src="how_the_demo_looks.gif" alt="how_the_demo_looks.gif is not yet loaded." style="height:400px;width:452px;"/>
 <br />
 <p>HTML5 Depth Capture tutorial shows how to access depth stream, check the <a href="https://01.org/chromium/blogs/astojilj/2017/depth-camera-capture-html5">tutorial text</a> or <a href="https://01org.github.io/depth-camera-web-demo/depthdemo.html">run the live demo here.</a></p>
@@ -23,8 +28,7 @@
 </table>
 
 To capture and manipulate depth camera stream in HTML5, you'll need:
-* Chrome browser version 58 or later (no need for additional extensions),
-    * Version 58 is currently available [from Beta channel](http://www.chromium.org/getting-involved/dev-channel),
+* Chrome browser version 62 or later (the official release and no need for additional extensions),
 * Intel® RealSense™ 3D camera plugged to USB 3.0 port
      * SR300 (and related cameras like Razer Stargazer or Creative BlasterX
 Senz3D) or R200,
@@ -32,12 +36,8 @@ Senz3D) or R200,
 
 These are the constraints of current implementation. The plan is to support other depth cameras and OSX and Android, too.
 
-An explanation on how to use the depth camera is in the article
-[Depth Camera Capture in HTML5](https://01.org/chromium/blogs/astojilj/2017/depth-camera-capture-html5).
+The articles explaining the demos and how to use the depth camera capture with WebGL:
+* [Depth Camera Capture in HTML5](https://01.org/chromium/blogs/astojilj/2017/depth-camera-capture-html5),
+* [How to create a 3D view from a depth camera in WebGL](https://01.org/blogs/mkollaro/2017/how-to-create-3d-view-in-webgl)
+* [Typing in the air using depth camera, Chrome, JavaScript, and WebGL transform feedback](https://software.intel.com/en-us/blogs/2017/06/22/tutorial-typing-in-the-air-using-depth-camera-chrome-javascript-and-webgl-transform)
 
-
-The example code here covers:
-
-* Displaying depth video stream in <video> element
-* uploading depth frame data to WebGL texture,
-* enumerating depth frame data pixel values in loop.
