@@ -25,6 +25,7 @@ class DepthAndSegments {
     this.out.segment_data = {};
     this.out1.segment_data = {};
     this.transform_feedback_draw_done = false;
+    this.gbsd_async_ready = false;
   }
 
   process() {
@@ -34,8 +35,10 @@ class DepthAndSegments {
       this.videoLoaded(video, window.stream);
       init_done = true;
     }
-    const gl = this.gl;    
+    const gl = this.gl; 
     if (this.transform_feedback_draw_done) {
+      // This is used only when WEBGL_get_buffer_sub_data_async extension is not
+      // available. 
       gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, gl.tf_bo);
       gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tf_output, 0, tf_output.length);
       gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, null);
@@ -48,9 +51,22 @@ class DepthAndSegments {
       this.transform_feedback_draw_done = false;
       return true;
     }
+    let processed = false;
+    if (this.gbsd_async_ready) {
+      // gbsd = getBufferSubData. Process the results from the previous frame
+      // make asynchronous request for this frame data below. 
+      this.gbsd_async_ready = false;
+      processOnCPU();
+
+      this.out1 = this.out;
+      this.out = out;
+
+      putReadPixelsToTestCanvas(this.testContext);   
+      processed = true;
+    }
 
     if (video_last_upload_time == video.currentTime) {
-      return false;
+      return processed;
     }
     video_last_upload_time = video.currentTime;
     gl.activeTexture(gl.TEXTURE0);
@@ -74,8 +90,20 @@ class DepthAndSegments {
     gl.bindVertexArray(null);
 
     gl.disable(gl.RASTERIZER_DISCARD);
-    this.transform_feedback_draw_done = true;
-    return false;
+    this.transform_feedback_draw_done = !gl.WEBGL_get_buffer_sub_data_async;
+
+    if (gl.WEBGL_get_buffer_sub_data_async) {
+      gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, gl.tf_bo);
+      this.gbsd_async_ready = false;
+      const this_ = this;
+      gl.WEBGL_get_buffer_sub_data_async.getBufferSubDataAsync(
+          gl.TRANSFORM_FEEDBACK_BUFFER, 0, tf_output, 0, tf_output.length).
+          then(function(buffer) {
+            this_.gbsd_async_ready = true;
+          });
+      gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, null);
+    }
+    return processed;
   }
 
   getMVPMatrix() {
@@ -322,9 +350,9 @@ function initGL(gl) {
 
     void main() {
       vec2 depth_pixel;
-      depth_pixel.x = mod(float(gl_VertexID), u_depth_size.x);
+      depth_pixel.x = mod(float(gl_VertexID), u_depth_size.x) + 0.5;
       depth_pixel.y = clamp(floor(float(gl_VertexID) / u_depth_size.x),
-                            0.0, u_depth_size.y);
+                            0.0, u_depth_size.y) + 0.5;
       vec2 tex_pos = depth_pixel / u_depth_size;
 
       // If camera faces towards user, mirror the display.
@@ -468,9 +496,9 @@ function initGL(gl) {
     void main() {
         // Get the texture coordinates in range from [0, 0] to [1, 1]
         vec2 depth_pixel;
-        depth_pixel.x = mod(float(gl_VertexID), u_depth_texture_size.x);
+        depth_pixel.x = mod(float(gl_VertexID), u_depth_texture_size.x) + 0.5;
         depth_pixel.y = clamp(floor(float(gl_VertexID) / u_depth_texture_size.x),
-                              0.0, u_depth_texture_size.y);
+                              0.0, u_depth_texture_size.y) + 0.5;
         vec2 depth_texture_coord = depth_pixel / u_depth_texture_size;
         // The values of R, G and B should be equal, so we can just
         // select any of them.

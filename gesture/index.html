@@ -332,8 +332,10 @@ body {
       physics = new Ammo.btDiscreteDynamicsWorld(dispatcher, pairCache, solver,collisionConfiguration);
       const gravity = new Ammo.btVector3(0, -9.81, 0);
       physics.setGravity(gravity);
+      const bt_zero_vec3 = new Ammo.btVector3(0, 0, 0);
       let transform = new Ammo.btTransform();
       // btCollisionObjects.h constants.
+      const ACTIVE_TAG = 1;
       const DISABLE_DEACTIVATION = 4;
       const WANTS_DEACTIVATION = 3;
       const CF_KINEMATIC_OBJECT = 2;
@@ -357,10 +359,10 @@ body {
         if (body.hasOwnProperty("frameid"))
           body.setCollisionFlags(body.getCollisionFlags() | CF_KINEMATIC_OBJECT);
         box.physics_body = body;
-        if (box.mass > 0)
-          body.setActivationState(DISABLE_DEACTIVATION);
         if (!box.visible)
-          return;
+          body.forceActivationState(WANTS_DEACTIVATION);
+        else if (box.mass > 0)
+          body.setActivationState(DISABLE_DEACTIVATION);
         physics.addRigidBody(body);
       }
 
@@ -498,14 +500,18 @@ body {
           transform.setRotation(new Ammo.btQuaternion(box.quat[0], box.quat[1], box.quat[2], box.quat[3]));
           body.setWorldTransform(transform);
           body.getMotionState().setWorldTransform(transform);
-          if (box.frameid == 0)
-            physics.addRigidBody(body);
+          if (box.frameid == 0) {
+            body.setLinearVelocity(bt_zero_vec3);
+            body.setAngularVelocity(bt_zero_vec3);
+            box.physics_body.forceActivationState(ACTIVE_TAG);
+          }
           box.frameid = frameid;
         }
         for (let i = POOL_OFFSET, len = boxes.length; i < len; ++i) {
           const box = boxes[i];
-          if (box.frameid == previous_frameid)
-            physics.removeRigidBody(box.physics_body);
+          if (box.frameid == previous_frameid) {
+            box.physics_body.forceActivationState(WANTS_DEACTIVATION);
+          }
           box.segment = null;
           if (box.frameid != frameid) {
             box.frameid = 0;
@@ -578,9 +584,11 @@ body {
       images.push(new Image());
       images[i].onload = image_onload;
     }
-    images[0].src = "webgl.png";
-    images[1].src = "grid.png";
-    images[2].src = "bone.png";
+    Ammo().then(function(Ammo) {
+      images[0].src = "webgl.png";
+      images[1].src = "grid.png";
+      images[2].src = "bone.png";
+    });
   </script>
 </body>
 </html>
