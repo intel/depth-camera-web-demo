@@ -145,6 +145,7 @@ body {
 
     let physics;
     let depthseg = new DepthAndSegments(app.gl);
+    const DEBUG_DRAW_BONES = true;
 
     var timer = app.createTimer();
 
@@ -308,6 +309,8 @@ body {
       let texture = app.createTexture2D(images[0], { flipY: true });
       let grid = app.createTexture2D(images[1], {});
       let bone = app.createTexture2D(images[2], {});
+      let redtex = app.createTexture2D(null, 1, 1, {});
+      redtex.data(Uint8Array.from([255, 0, 0, 255]));
 
       function setupDraw(box) {
         box.shadowDrawCall = app.createDrawCall(shadowProgram, box.array);
@@ -333,16 +336,23 @@ body {
       const gravity = new Ammo.btVector3(0, -9.81, 0);
       physics.setGravity(gravity);
       const bt_zero_vec3 = new Ammo.btVector3(0, 0, 0);
+
       let transform = new Ammo.btTransform();
       // btCollisionObjects.h constants.
       const ACTIVE_TAG = 1;
       const DISABLE_DEACTIVATION = 4;
       const WANTS_DEACTIVATION = 3;
       const CF_KINEMATIC_OBJECT = 2;
+      const DISABLE_SIMULATION = 5;
+      const CF_STATIC_OBJECT = 1;
+      const CF_NO_CONTACT_RESPONSE = 4;
+      const CF_CUSTOM_MATERIAL_CALLBACK = 8;
+      const CF_CHARACTER_OBJECT = 16;
       let frameid = 0;
       let previous_frameid = 0;
 
-      function createRigidBody(box) {
+      function createRigidBody(index) {
+        const box = boxes[index];
         let shape = new Ammo.btBoxShape(new Ammo.btVector3(box.scale[0] * 0.5, box.scale[1] * 0.5, box.scale[2] * 0.5));
         transform.setIdentity();
         transform.setOrigin(new Ammo.btVector3(box.translate[0], box.translate[1], box.translate[2]));
@@ -353,21 +363,34 @@ body {
         shape.calculateLocalInertia(box.mass, localInertia);
 
         let info = new Ammo.btRigidBodyConstructionInfo(box.mass, motionState, shape, localInertia);
-        if (box.hasOwnProperty("frameid")) 
+        const is_finger = box.hasOwnProperty("frameid");
+        if (is_finger) 
           info.m_friction = 10.0; // high friction for hands.
         let body = new Ammo.btRigidBody(info);
-        if (body.hasOwnProperty("frameid"))
-          body.setCollisionFlags(body.getCollisionFlags() | CF_KINEMATIC_OBJECT);
+        // if (box.hasOwnProperty("frameid"))
+        //   body.setCollisionFlags(body.getCollisionFlags() | CF_KINEMATIC_OBJECT);
         box.physics_body = body;
+        body.setUserPointer(box);
+        body.setUserIndex(index);
         if (!box.visible)
-          body.forceActivationState(WANTS_DEACTIVATION);
-        else if (box.mass > 0)
+          body.forceActivationState(DISABLE_SIMULATION);
+        if (box.mass > 0) {
           body.setActivationState(DISABLE_DEACTIVATION);
+          box.constraints = [{another_item: -1}, {another_item: -1}];
+        } else if (is_finger) {
+          box.constraints = [];
+          body.setCollisionFlags(CF_NO_CONTACT_RESPONSE | CF_STATIC_OBJECT);
+          // body.setSleepingThresholds(0.2, 0.2);
+          // body.setAngularFactor(0.0);
+        }
         physics.addRigidBody(body);
       }
 
       function updatePhysics(time_delta) {
         physics.stepSimulation(time_delta, 10);
+        // TODO: rebuild ammmo.js to add tick callback or split this step to
+        // multiple substep stepSimulation to check the contacts and manifolds.
+        addConnectionsForContacts();
         for (let i = 1; i < boxes.length; i++) {
           let box = boxes[i];
           let state = box.physics_body.getMotionState();
@@ -393,6 +416,8 @@ body {
       const subtract = new glMatrix.ARRAY_TYPE(3);
       const draw_transform = mat4.create();
       const yUnitVec3 = vec3.fromValues(0,1,0);
+      const far_away = new Ammo.btTransform();
+      far_away.setOrigin(new Ammo.btVector3(-200, -200, -200));
 
       function getBoxFromPool(length) {
         const k = Math.max(20, Math.min((length * 1000) | 0, 69));
@@ -410,6 +435,9 @@ body {
       }
 
       function updateFingerSegments() {
+        previous_frameid = frameid;
+        frameid = ((frameid + 1) & 0xFFFFFFFF) || 1;
+
         // Convert scanned point values |p| to 3D |v|.
         function convertTo3D(v, x, y, d) {
           const depth = depthseg.depth_scale * d + 0.007;
@@ -492,7 +520,7 @@ body {
             moveBoxToNewPosition(b, segment.world_center, segment.world_base);
           }
           const box = segment.box;
-          // box.visible = true;
+          box.visible = DEBUG_DRAW_BONES;
           // reposition the body and add to physics world.
           const body = box.physics_body;
           transform.setIdentity();
@@ -503,25 +531,140 @@ body {
           if (box.frameid == 0) {
             body.setLinearVelocity(bt_zero_vec3);
             body.setAngularVelocity(bt_zero_vec3);
-            box.physics_body.forceActivationState(ACTIVE_TAG);
+            body.forceActivationState(ACTIVE_TAG);
+            body.setCollisionFlags(CF_STATIC_OBJECT);
           }
           box.frameid = frameid;
         }
         for (let i = POOL_OFFSET, len = boxes.length; i < len; ++i) {
           const box = boxes[i];
+          const body = box.physics_body;
+          if (box.frameid != frameid && box.frameid != previous_frameid && body.getCollisionFlags() == 1)
+            console.log("error");
+
           if (box.frameid == previous_frameid) {
-            box.physics_body.forceActivationState(WANTS_DEACTIVATION);
+            body.setLinearVelocity(bt_zero_vec3);
+            body.setAngularVelocity(bt_zero_vec3);
+            // getBroadphaseProxy().masks and groups are not compiled in,
+            // DISABLE_SIMULATION is not honored so the way to avoid interaction
+            // of pool items is to add CF_NO_CONTACT_RESPONSE flag.
+            // As this means that the collision is still computed, we move the
+            // objects far away to get them processed out during broad phase.
+            body.setCollisionFlags(CF_NO_CONTACT_RESPONSE | CF_STATIC_OBJECT);
+            body.setActivationState(DISABLE_SIMULATION);
+            // body.setWorldTransform(far_away);
+            // body.getMotionState().setWorldTransform(far_away);
+            // remove all the constraints this body has in the world.
+            for (let j = 0; j < box.constraints.length; j++) {
+              const constraint = box.constraints[j];
+              physics.removeConstraint(constraint.c);
+              // remove the constraint from the world object, too:
+              const wbox = boxes[constraint.another_item];
+              const wboxcindex = (wbox.constraints[0].another_item == i) ?
+                                 0 : 1; // up to two joints used for now.
+              wbox.constraints[wboxcindex].another_item = -1; // no constraint
+              if (wboxcindex == 0) { // shift left
+                wbox.constraints[0] = wbox.constraints[1];
+                wbox.constraints[1] = {another_item: -1};
+              }
+            }
+            box.constraints = [];
           }
           box.segment = null;
           if (box.frameid != frameid) {
             box.frameid = 0;
-            box.visible = false;
+            // box.visible = box.physics_body.isActive(); // false;
           }
         }
       }
 
+      function addConnectionsForContacts() {
+
+        function processManifold(box1, box2, manifold) {
+          if (!manifold)
+              console.error("undefined manifold");
+          const ob = boxes[box1];
+          let ind = 0; // (ob.constraints[0].another_item == -1) ? 0 : 1;
+          const item = ob.constraints[ind];
+          if (item.another_item != -1)
+            return; // already two fingers holding the object, ignore other.
+/*          if (ind == 0) {
+            // We don't create constraints here unless there are two contacts.
+            // For now, keep the info about manifold.
+            item.manifold = manifold;
+            item.another_item = box2;
+            item.c = null;
+            return;
+          }
+          // ind == 1; this is second contact point on the item and we trigger
+          // hooking to fingers. TODO: check the positions of contacts points.
+          const zero = ob.constraints[0];
+          if (zero.c == null) {
+            // Create constraint from the manifold.
+            const finger_zero = boxes[zero.another_item];
+            if (!zero.manifold)
+              console.error("item:" + ind + " " + zero.another_item);
+            let pt = zero.manifold.getContactPoint(0);
+            zero.c = new Ammo.btPoint2PointConstraint(ob.physics_body,
+                finger_zero.physics_body, pt.getPositionWorldOnA(), pt.getPositionWorldOnB());
+            finger_zero.constraints.push({another_item: box1, c: zero.c});
+            zero.manifold = null;
+            physics.addConstraint(zero.c);
+          }*/
+
+          // let pt = manifold.getContactPoint(0);
+          // st string = "dist:" + pt.getDistance() + " " + pt.getPositionWorldOnA() + pt.getPositionWorldOnB();
+          // const constraint = new btPoint2PointConstraint()
+          const finger = boxes[box2];
+          let p = manifold.getContactPoint(0);
+          const pivotA = p.getPositionWorldOnA();
+          const pivotB = p.getPositionWorldOnB();
+          const pA = p.get_m_localPointA();
+          const pB = p.get_m_localPointB();          
+          const string = "A:"  + pivotA.x() + "," + pivotA.y() + "," + pivotA.z() +
+                         " B:" + pivotB.x() + "," + pivotB.y() + "," + pivotB.z() +
+                         " AL:" + pA.x() + "," + pA.y() + "," + pA.z() +
+                         " BL:" + pB.x() + "," + pB.y() + "," + pB.z();
+
+          console.log(string);
+
+
+          item.c = new Ammo.btPoint2PointConstraint(ob.physics_body,
+              finger.physics_body, pA, new Ammo.btVector3(0, pB.y(), 0));
+          finger.constraints.push({another_item: box1, c: item.c});
+          item.manifold = null;
+          item.another_item = box2;
+          physics.addConstraint(item.c);
+        }
+
+        const disp = physics.getDispatcher();
+        for (let i = 0, num = disp.getNumManifolds(); i < num; i++) {
+          const manifold = disp.getManifoldByIndexInternal(i);
+          const num_contacts = manifold.getNumContacts();
+          if (!num_contacts)
+            continue;
+          const box0 = manifold.getBody0().getUserIndex();
+          const box1 = manifold.getBody1().getUserIndex();
+          if(box0 > box1) throw "first one should be less than the second";
+          if (box1 < POOL_OFFSET || !manifold.getBody1().isActive())
+            continue;
+          processManifold(box0, box1, manifold);
+        }
+
+        // reset back intermediate data.
+        for (let i = 1; i < POOL_OFFSET; i++) {
+          const c = boxes[i].constraints[0];
+          if (c.manifold != null) {
+            // Means that there was only one contact on the object and no
+            // constraints instantiated.
+            c.manifold = null;
+            c.another_item = -1;
+          }
+        }
+      }      
+
       for (var i = 0, len = boxes.length; i < len; ++i)
-        createRigidBody(boxes[i]);
+        createRigidBody(i);
 
       let timestamp = performance.now();
 
@@ -529,8 +672,6 @@ body {
         if (timer.ready()) {
           utils.updateTimerElement(timer.cpuTime, timer.gpuTime);
         }
-        previous_frameid = frameid;
-        frameid = ((frameid + 1) & 0xFFFFFFFF) || 1;
 
         timer.start();
         const gl = depthseg.gl;
