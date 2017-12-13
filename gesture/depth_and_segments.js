@@ -43,6 +43,7 @@ class DepthAndSegments {
       gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tf_output, 0, tf_output.length);
       gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, null);
       processOnCPU();
+      this.identifyJointsAndFixNoise();
 
       this.out1 = this.out;
       this.out = out;
@@ -57,6 +58,7 @@ class DepthAndSegments {
       // make asynchronous request for this frame data below. 
       this.gbsd_async_ready = false;
       processOnCPU();
+      this.identifyJointsAndFixNoise();
 
       this.out1 = this.out;
       this.out = out;
@@ -195,10 +197,71 @@ class DepthAndSegments {
     
     // Coefficient is used to calculate the width of finger (in pixels) on given
     // distance (depth) from camera. Assume that finger is wider than 0.6 cm.
-    const finger_half_width = 0.003 * depthIntrinsics.focalLength[0] / parameters.depthScale;
+    const finger_half_width = 0.0027 * depthIntrinsics.focalLength[0] / parameters.depthScale;
     gl.uniform1f(gl.getUniformLocation(gl.compute_program, "finger_half_width"), finger_half_width);
     // 5 cm for longest finger segment. Fingers usually have 2-3 of those.
     segment_coef = 0.05 * depthIntrinsics.focalLength[0] / parameters.depthScale;
+    this.depth_coef = this.depth_scale * this.depth_focal_inv_x; // cache the computed
+  }
+
+  identifyJointsAndFixNoise() {
+    // in segment data, identify end points that are joints.
+    let keys = Object.keys(segment_data);
+    for (let k = 0; k < keys.length; k++) {
+      const seg0 = segment_data[keys[k]];
+      const fl = seg0.far_left;
+      const fr = seg0.far_right;
+      for (let l = k + 1; l < keys.length; l++) {
+        const seg1 = segment_data[keys[l]];
+        // rough/fast estimation on arbitrary threshold.
+        const coef = seg1.depth * this.depth_coef;
+        const scale = this.depth_scale;
+        function pointsNear(p) {
+          function square(p) { return p * p; }
+          const distance = square(coef * (seg1.x - p.x)) + square(coef * (seg1.y - p.y))
+                         + square(scale * (seg1.depth - p.depth));
+          return distance < 0.0009;                
+        }
+        if (pointsNear(fl)) {
+          fl.joint = seg1.index;
+          seg1.joint = fl.index;
+        }
+        if (pointsNear(fr)) {
+          fr.joint = seg1.index;
+          seg1.joint = fr.index;
+        }
+      }
+      // check the special cases: vertical and horizontal orientation.
+      const maxy = Math.max(fr.y, fl.y);
+      if (fr.x - fl.x < 0.3 * (maxy - seg0.y)) {
+        // vertical thing, use the furthest one.
+        const in_the_middle = (fr.y < fl.y) ? fr : fl;
+        in_the_middle.joint = in_the_middle.index;
+      } else {
+        const ignore = seg0.count_right < seg0.count_left ? fr : fl;
+        ignore.joint = ignore.index;
+      }
+    }
+
+    // For endpoints that are not joints, we average using center points where
+    // available.
+    for (let k = 0; k < keys.length; k++) {
+      function useCenterIfAvailable(p) {
+        if (p.center.x == -1)
+          return;
+        p.x_original = p.x;
+        p.y_original = p.y;
+        p.x = p.center.x;
+        p.y = p.center.y;
+        p.index = p.x + p.y * width;
+        p.depth = modf(tf_output[p.index]);
+      }
+      const seg0 = segment_data[keys[k]];
+      if (!seg0.far_left.hasOwnProperty("joint"))
+        useCenterIfAvailable(seg0.far_left);
+      if (!seg0.far_right.hasOwnProperty("joint"))
+        useCenterIfAvailable(seg0.far_right);
+    }
   }
 }
 
@@ -263,9 +326,9 @@ function putReadPixelsToTestCanvas(testContext) {
 
   for (let i = 0, j = 0; i < data.length; i += 4) {
     let val = tf_output[i / 4];
-    let depth = val > 0.0 ? 70 : (modf(-val) * 700);
-    if (links[i / 4] != -1)
-      depth = 110;
+    let depth = val > 0.0 ? 110 : (modf(-val) * 1200);
+    if (val < 0 && links[i / 4] != -1)
+      depth = 60; // visited points.
     data[i] = depth;
     data[i + 1] = depth;
     data[i + 1] = depth;
@@ -294,11 +357,21 @@ function putReadPixelsToTestCanvas(testContext) {
 
     let item = segment.far_left;
     if (item.index !== undefined) {
-      if (segment.count_left < segment.count_right)
-        testContext.strokeStyle = "#3f3f3f";
+      if (item.hasOwnProperty("joint"))
+        testContext.strokeStyle = "#AAAA00";
       else
         testContext.strokeStyle = strokeStyle;
       testContext.beginPath();
+      testContext.fillStyle="#FFFF00";
+      testContext.fillRect(column, row, 2, 2);
+      if (item.hasOwnProperty("x_original")) {
+        testContext.fillStyle="#007F7F";
+        testContext.fillRect(item.x_original, item.y_original, 2, 2);
+        testContext.fillStyle="#FFFFFF";        
+      } else {
+        testContext.fillStyle="#0000FF";
+      }
+      testContext.fillRect(item.x, item.y, 2, 2);
       testContext.moveTo(column, row);
       testContext.lineTo(item.x, item.y);
       testContext.stroke();      
@@ -306,21 +379,34 @@ function putReadPixelsToTestCanvas(testContext) {
 
     item = segment.far_right;
     if (item.index !== undefined) {
-      if (segment.count_right < segment.count_right)
-        testContext.strokeStyle="#3f3f3f";
+      if (item.hasOwnProperty("joint"))
+        testContext.strokeStyle="#AAAA00";
       else
         testContext.strokeStyle = strokeStyle;
       testContext.beginPath();
       testContext.moveTo(column, row);
       testContext.lineTo(item.x, item.y);
+      if (item.hasOwnProperty("x_original")) {
+        testContext.fillStyle="#7F7F00";
+        testContext.fillRect(item.x_original, item.y_original, 2, 2);
+        testContext.fillStyle="#FFFFFF";        
+      } else {
+        testContext.fillStyle="#FF0000";        
+      }
+      testContext.fillRect(item.x, item.y, 2, 2);
+
       testContext.stroke();      
     }
+
     // Draw joints
     
-    testContext.fillStyle="#FF0000";
-    testContext.fillRect(column, row, 2, 2);
-    testContext.stroke();
+//    testContext.fillStyle="#FF0000";
+//    testContext.fillRect(column, row, 2, 2);
+//    testContext.stroke();
   }
+  const img1 = testContext.getImageData(0, 0, video.width, video.height);
+  testContext.putImageData(img1, 0, 0);
+
 }
 
 // Creates WebGL/WebGL2 context used to upload depth video to texture.
@@ -374,7 +460,7 @@ function initGL(gl) {
       // Calculate max_width of the finger at the given distance. Asuming that finger is
       // wider than ~0.6cm, min_width_half is width (in pixels) related to 0.3 cm.
       float min_width_half = finger_half_width / depth;
-      float max_width_half = min_width_half * 5.0;
+      float max_width_half = min_width_half * 6.0;
 
       // Sample around and increase the distance of samples to the point.
       // The idea is that on distance D all the samples are inside the area
@@ -387,7 +473,7 @@ function initGL(gl) {
       float k = 0.0; 
       float s_y = 1.0;
       float s_x = 1.0;
-      float i = min_width_half * 0.19; // 0.19 + 0.8 = 0.99, check k.
+      float i = max(min_width_half * 0.19, 1.0); // 0.19 + 0.8 = 0.99, check k.
 
       for (; i < max_width_half; i += width_step, k++) {
         d_0   =  texture(s_depth, tex_pos + vec2( i, 0.0) * step).r;
@@ -405,7 +491,10 @@ function initGL(gl) {
       // k > 2.0 serves to eliminate "thin" areas. We pass depth > 0 through
       // transform feedback, so that CPU side of algorithm would understands
       // that this point is "part of finger bone" point and process it further.
-      if ((inside_count <= 1.0 || (inside_count == 2.0 && s_x * s_y == 0.0)) && k > 2.0)
+      if (k > 2.0 && inside_count <= 1.0) {
+        depth = depth + k;
+        return;
+      } else if (k > 2.0 && inside_count == 2.0 && (s_x * s_y == 0.0))
         return;
 
       // We also need large areas info as they are modeled using circles - as a
@@ -629,6 +718,7 @@ function getMvpMatrix(screenwidth, screenheight) {
 
     var mvp = mat4.create();
     mat4.multiply(mvp, projection, mv);
+    mat4.scale(mvp, mvp, [1.1, 1.1, 1]);
     return mvp;
 }
 
@@ -661,11 +751,11 @@ function processOnCPU() {
   // We limit the gesture processing to area of the screen with margins 60 for
   // screen size 640x480. This is to avoid the need of checking against the
   // screen bounds.
-  let x_offset = width * 0.1;
-  let y_offset = height * 0.125;
-  let x_count = width * 0.8;
-  let y_end = height * 0.875;
-  const max_radius = Math.min(radius_offset.length, x_offset);
+  const x_offset = Math.min(radius_offset.length, (width * 0.1) | 0, (height * 0.125) | 0);
+  const y_offset = x_offset;
+  const max_radius = x_offset;
+  let x_count = width - (2 * x_offset);
+  let y_end = height - y_offset;
   for (let row = y_offset; row < y_end; row++) {
     const row_offset = row * width;
     let x = row_offset + x_offset;
@@ -683,6 +773,7 @@ function processOnCPU() {
       markConnectedPoints(x, x - row_offset, row, radius);
     }
   }
+
   out2 = out1;
   out1 = out;
   out = {segment_data: segment_data};
@@ -694,8 +785,8 @@ function markConnectedPoints(index, column, row, radius) {
   links[index] = index;
 
   // farthest index left and right.
-  let farthest_index_left = {index: index, x: column, y: row};
-  let farthest_index_right = {index: index, x: column, y: row};
+  let farthest_index_left = {index: index, x: column, y: row, center: {x: -1, y: -1}};
+  let farthest_index_right = {index: index, x: column, y: row, center: {x: -1, y: -1}};
   let count_left = 0;
   let count_right = 0;
 
@@ -730,11 +821,19 @@ function markConnectedPoints(index, column, row, radius) {
           continue; // The pixel is not on the finger bone. 
         // Track the farthest indices to the left and to the right.
         if (x_offset < 0) {
+          if (l > 1.0) {
+            farthest_index_left.center.x = x;
+            farthest_index_left.center.y = y;
+          }
           farthest_index_left.index = elem;
           farthest_index_left.x = x;
           farthest_index_left.y = y;
           count_left++;
         } else {
+          if (l > 1.0) {
+            farthest_index_right.center.x = x;
+            farthest_index_right.center.y = y;
+          }
           farthest_index_right.index = elem;
           farthest_index_right.x = x;
           farthest_index_right.y = y;
