@@ -34,6 +34,12 @@ body {
   left: 10px;
   color: white;
 }
+#rotate-control {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  color: black;
+}
 </style>
 <body>
   <div class="info">
@@ -44,6 +50,9 @@ body {
       <div id="errormessages" style="color: red; font-size: x-large;"></div>
 
   </div>
+  <div id="rotate-control">
+    Rotate - head mounted camera: <input id="rotate-toggle" type="checkbox" checked>
+  </div>  
   <canvas id="gl-canvas"></canvas>
   <script id="shadow-vs" type="x-vertex-shader">
     #version 300 es
@@ -146,6 +155,10 @@ body {
     let physics;
     let depthseg = new DepthAndSegments(app.gl);
     const DEBUG_DRAW_BONES = false;
+
+    document.getElementById("rotate-toggle").addEventListener("change", function() {
+      depthseg.setXFlip(this.checked);
+    });
 
     var timer = app.createTimer();
 
