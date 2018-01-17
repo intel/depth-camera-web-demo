@@ -15,20 +15,25 @@
 // limitations under the License.
 
 class DepthAndSegments {
-  constructor(gl) {
+  constructor(gl, drawGL = null) {
     this.gl = gl;
-    initGL(gl);
+    initGL(gl, drawGL);
     reload();
-    // this.createDepthInfoCanvas();
+    this.createDepthInfoCanvas();
     this.out = {};
     this.out1 = {};
     this.out.segment_data = {};
     this.out1.segment_data = {};
     this.transform_feedback_draw_done = false;
     this.gbsd_async_ready = false;
+    this.width = 640;
+    this.height = 480;
   }
 
-  process() {
+  // In case when we use one WebGL context for processing (WebGL 2.0) and 
+  // another |drawGL| for rendering depth, we upload depth texture to both.
+  // 
+  process(drawGL) {
     if (!video_loaded)
       return false;
     if (!init_done) {
@@ -43,7 +48,7 @@ class DepthAndSegments {
       gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tf_output, 0, tf_output.length);
       gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, null);
       processOnCPU();
-      this.identifyJointsAndFixNoise();
+      this.identifyJointsAndFixNoise(out.segment_data);
 
       this.out1 = this.out;
       this.out = out;
@@ -58,7 +63,7 @@ class DepthAndSegments {
       // make asynchronous request for this frame data below. 
       this.gbsd_async_ready = false;
       processOnCPU();
-      this.identifyJointsAndFixNoise();
+      this.identifyJointsAndFixNoise(out.segment_data);
 
       this.out1 = this.out;
       this.out = out;
@@ -80,6 +85,13 @@ class DepthAndSegments {
     } else {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, gl.RGBA, gl.FLOAT, video);
     }
+    
+    if (drawGL && drawGL != gl) {
+      drawGL.activeTexture(gl.TEXTURE0);
+      drawGL.bindTexture(gl.TEXTURE_2D, drawGL.depth_texture);
+      drawGL.texImage2D(drawGL.TEXTURE_2D, 0, drawGL.RGBA, drawGL.RGBA, drawGL.FLOAT, video);     
+    }
+
     gl.enable(gl.RASTERIZER_DISCARD);
     gl.useProgram(gl.compute_program);
     gl.bindVertexArray(gl.depth_vao);
@@ -98,6 +110,7 @@ class DepthAndSegments {
       gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, gl.tf_bo);
       this.gbsd_async_ready = false;
       const this_ = this;
+
       gl.WEBGL_get_buffer_sub_data_async.getBufferSubDataAsync(
           gl.TRANSFORM_FEEDBACK_BUFFER, 0, tf_output, 0, tf_output.length).
           then(function(buffer) {
@@ -163,13 +176,17 @@ class DepthAndSegments {
 
     width = video.videoWidth;
     height = video.videoHeight;
+    this.width = width;
+    this.height = height;
     this.setCameraParameters(DepthCamera.getCameraCalibration(stream));
+    if (this.depthVideoLoadedCallback)
+      this.depthVideoLoadedCallback();
   }
 
   setCameraParameters(parameters) {
     const gl = this.gl;    
     const nearplane = 0.0;
-    const farplane = 0.8 / parameters.depthScale;
+    const farplane = 0.75 / parameters.depthScale;
     const program = gl.render_program;
     gl.useProgram(program);
     let shaderVar = gl.getUniformLocation(program, "u_depth_scale");
@@ -184,10 +201,9 @@ class DepthAndSegments {
     var shaderDepthTexture = gl.getUniformLocation(program, "u_depth_texture");
     gl.uniform1i(shaderDepthTexture, 0);
 
-    this.depth_focal_inv_x = 1 / depthIntrinsics.focalLength[0];
-    this.depth_focal_inv_y = 1 / depthIntrinsics.focalLength[1];
-    this.depth_offset_x = depthIntrinsics.offset[0];
-    this.depth_offset_y = depthIntrinsics.offset[1];
+    this.depth_focal_inv = [1 / depthIntrinsics.focalLength[0],
+                            1 / depthIntrinsics.focalLength[1]];
+    this.depth_offset = depthIntrinsics.offset;
     this.depth_scale = parameters.depthScale;
 
     gl.useProgram(gl.compute_program);
@@ -201,7 +217,7 @@ class DepthAndSegments {
     gl.uniform1f(gl.getUniformLocation(gl.compute_program, "finger_half_width"), finger_half_width);
     // 5 cm for longest finger segment. Fingers usually have 2-3 of those.
     segment_coef = 0.05 * depthIntrinsics.focalLength[0] / parameters.depthScale;
-    this.depth_coef = this.depth_scale * this.depth_focal_inv_x; // cache the computed
+    this.depth_coef = this.depth_scale * this.depth_focal_inv[0]; // cache the computed
   }
 
   setXFlip(value) {
@@ -212,9 +228,17 @@ class DepthAndSegments {
     gl.uniform1f(gl.compute_u_x_flip, value ? 0.0 : 1.0);
   }
 
-  identifyJointsAndFixNoise() {
+  identifyJointsAndFixNoise(segment_data) {
     // in segment data, identify end points that are joints.
     let keys = Object.keys(segment_data);
+
+    function square(p) { return p * p; }
+    function pointsNear(p, seg1, coef, scale) {
+      const distance = square(coef * (seg1.x - p.x)) + square(coef * (seg1.y - p.y))
+                     + square(scale * (seg1.depth - p.depth));
+      return distance < 0.0009;                
+    }
+
     for (let k = 0; k < keys.length; k++) {
       const seg0 = segment_data[keys[k]];
       const fl = seg0.far_left;
@@ -224,17 +248,11 @@ class DepthAndSegments {
         // rough/fast estimation on arbitrary threshold.
         const coef = seg1.depth * this.depth_coef;
         const scale = this.depth_scale;
-        function pointsNear(p) {
-          function square(p) { return p * p; }
-          const distance = square(coef * (seg1.x - p.x)) + square(coef * (seg1.y - p.y))
-                         + square(scale * (seg1.depth - p.depth));
-          return distance < 0.0009;                
-        }
-        if (pointsNear(fl)) {
+        if (pointsNear(fl, seg1, coef, scale)) {
           fl.joint = seg1.index;
           seg1.joint = fl.index;
         }
-        if (pointsNear(fr)) {
+        if (pointsNear(fr, seg1, coef, scale)) {
           fr.joint = seg1.index;
           seg1.joint = fr.index;
         }
@@ -253,23 +271,77 @@ class DepthAndSegments {
 
     // For endpoints that are not joints, we average using center points where
     // available.
-    for (let k = 0; k < keys.length; k++) {
-      function useCenterIfAvailable(p) {
-        if (p.center.x == -1)
-          return;
-        p.x_original = p.x;
-        p.y_original = p.y;
-        p.x = p.center.x;
-        p.y = p.center.y;
-        p.index = p.x + p.y * width;
-        p.depth = modf(tf_output[p.index]);
+    function useCenterIfAvailable(p) {
+      if (p.center.x == -1)
+        return;
+      p.x_original = p.x;
+      p.y_original = p.y;
+      p.x = p.center.x;
+      p.y = p.center.y;
+      p.index = p.x + p.y * width;
+      p.depth = modf(tf_output[p.index]);
+    }
+
+    function moveAwayFromEdge(p, to) {
+      // Limit the movement to 5mm.
+      const pixels = segment_coef_5mm / p.depth;
+      let xstep = 1;
+      let ystep = 1;
+      let steps = pixels;
+      const xdiff = Math.abs(p.x - to.x);
+      const ydiff = Math.abs(p.y - to.y);
+      if (xdiff < 2 && ydiff < 2)
+        return;
+      const hypotenuse = Math.sqrt(xdiff * xdiff + ydiff * ydiff);
+      if (xdiff > ydiff) {
+        xstep = Math.sign(p.x - to.x);
+        ystep = (p.y - to.y) / hypotenuse;
+        steps = pixels * xdiff / hypotenuse;
+      } else {
+        ystep = Math.sign(p.y - to.y);
+        xstep = (p.x - to.x) / hypotenuse;
+        steps = pixels * ydiff / hypotenuse;
       }
+      let hitedge = false;
+      let x = p.x + 0.5;
+      let y = p.y + 0.5;
+      let i = 1;
+      while (i < steps) {
+        x += xstep;
+        y += ystep;
+        if (tf_output[(y | 0) * width + (x | 0)] == 0) {
+          break;
+        }
+        i++;
+      }
+      if (i >= steps)
+        return;
+      x = p.x - xstep * (steps - i);
+      y = p.y - ystep * (steps - i);
+      p.x = (x + 0.5) | 0;
+      p.y = (y + 0.5) | 0;
+    }
+
+    const segment_coef_5mm = segment_coef * 0.12;
+    for (let k = 0; k < keys.length; k++) {
       const seg0 = segment_data[keys[k]];
       if (!seg0.far_left.hasOwnProperty("joint"))
         useCenterIfAvailable(seg0.far_left);
       if (!seg0.far_right.hasOwnProperty("joint"))
         useCenterIfAvailable(seg0.far_right);
+      // Move ends away from the edge.
+      const end = seg0.far_left.hasOwnProperty("joint") ? seg0.far_right : seg0.far_left;
+      if (!end.hasOwnProperty("joint"))
+        moveAwayFromEdge(end, seg0);
+      if (!seg0.hasOwnProperty("joint"))
+        moveAwayFromEdge(seg0, end);
     }
+  }
+
+  // Non skeleton means that client knows the depth value is not on skeleton and
+  // here we know it is encoded as negative. Saves one abs - premature optimization :)
+  getDepthNonSkeleton(x, y) {
+    return modf(-tf_output[y * width + x]);
   }
 }
 
@@ -331,6 +403,7 @@ function putReadPixelsToTestCanvas(testContext) {
     return;
   const img = testContext.getImageData(0, 0, video.width, video.height);
   const data = img.data;
+  const segment_data = out.segment_data;
 
   for (let i = 0, j = 0; i < data.length; i += 4) {
     let val = tf_output[i / 4];
@@ -340,7 +413,10 @@ function putReadPixelsToTestCanvas(testContext) {
     data[i] = depth;
     data[i + 1] = depth;
     data[i + 1] = depth;
-    data[i + 2] = depth;
+    if (val > -1)
+      data[i + 2] = depth;
+    else
+      data[i + 2] = 0;
     data[i+3] = 255;
   }
 
@@ -418,10 +494,14 @@ function putReadPixelsToTestCanvas(testContext) {
 }
 
 // Creates WebGL/WebGL2 context used to upload depth video to texture.
-function initGL(gl) {
+function initGL(gl, drawGL) {
   // EXT_color_buffer_float to use single component R32F texture format.
   gl.color_buffer_float_ext = gl.getExtension('EXT_color_buffer_float');
   gl.WEBGL_get_buffer_sub_data_async = gl.getExtension("WEBGL_get_buffer_sub_data_async");
+  if (drawGL) {
+    drawGL.color_buffer_float_ext = drawGL.getExtension('EXT_color_buffer_float') ||
+                                    drawGL.getExtension('OES_texture_float');
+  }
 
   if (!gl || !gl.color_buffer_float_ext) {
     alert("The depth capture demo doesn't run because it requires WebGL2 support with EXT_color_buffer_float.");
@@ -478,7 +558,7 @@ function initGL(gl) {
       // would make the point "fingertip point" (e.g part of the skeleton) for
       // the area.
       float width_step = min_width_half * 0.8;
-      float inside_count = 3.0;
+      float inside_count = 4.0;
 
       float k = 0.0; 
       float s_y = 1.0;
@@ -509,7 +589,9 @@ function initGL(gl) {
 
       // We also need large areas info as they are modeled using circles - as a
       // net of pearls.
-      depth = -(((inside_count == 4.0) ? 1.0 : 0.0) * max_width_half + depth);
+      depth = -depth;
+      if (inside_count > 3.0)
+        depth -= 1.0;
     }`
   );
   gl.compileShader(tf_vertex_shader);
@@ -665,6 +747,7 @@ function initGL(gl) {
       float shadow = texture(u_shadow_map, s);
       vec3 normal = normalize(v_normal);
       vec3 to_eye = normalize(-v_position); // eye is in 0,0,0
+      // TODO: to_eye shouldnt be hardcoded.
       vec3 to_light = normalize(vec3(0.7, -3.0, 1.0) - v_position);
       // no specular component for hands.
       float diffuse = shadow * max(dot(to_light, normal), 0.0) * 0.7;
@@ -694,23 +777,20 @@ function initGL(gl) {
   gl.render_u_x_flip = gl.getUniformLocation(program, "x_flip");
   gl.uniform1i(gl.render_u_x_flip, 0);
   
+  function createDepthTexture(gl) {
+    var depth_texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, depth_texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    return depth_texture;  
+  };
   // Upload the latest depth frame to this texture.
-  var depth_texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, depth_texture);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.depth_texture = createDepthTexture(gl);
+  if (drawGL)
+    drawGL.depth_texture = createDepthTexture(drawGL);
 
-  // Framebuffer for reading back the texture.
-  var framebuffer = gl.createFramebuffer();
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D,
-                          depth_texture, 0);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-  gl.depth_texture = depth_texture;
-  gl.framebuffer = framebuffer;
   gl.render_program = program;
   gl.compute_program = compute_program;
   gl.transform_feedback = transform_feedback;
@@ -747,7 +827,7 @@ let tf_output;
 // are procesed in the algorithm (speed concern) and only those have the values
 // != -1 - see markConnectedPoints.
 let links;
-let segment_data;
+
 
 let out;
 let out1;
@@ -762,7 +842,11 @@ function processOnCPU() {
   links.fill(-1);
   segment_farthest_point_map_left = {};
   segment_farthest_point_map_right = {};
-  segment_data = {};
+  const segment_data = {};
+  const net_inv = 1 / 60.0;
+  const netw = Math.ceil(width * net_inv);
+  const neth = Math.ceil(height * net_inv);
+  const net = (out ? out.net : new Array(netw * neth)).fill(-1);
 
   // We limit the gesture processing to area of the screen with margins 60 for
   // screen size 640x480. This is to avoid the need of checking against the
@@ -778,24 +862,32 @@ function processOnCPU() {
     const x_end = x + x_count;
     for (; x < x_end; ++x) {
       const value = tf_output[x];
-      if (value <= 0.0) // non-zero pixel that is not on a bone or empty.
+      if (value < -1) {
+        // Maintain the net of wide areas.
+        const column = x - row_offset;
+        const ncol = (column * net_inv) | 0;
+        const nrow = (row * net_inv) | 0;
+        const ni = netw * nrow + ncol;
+        if (net[ni] == -1)
+          net[ni] = (column << 16) | row;
         continue;
-      // If already on a segment.
+      } else if (value <= 0.0) {
+        continue; // Far away pixel if 0, or pixel that is not on a bone if < 0.
+      }
       if (links[x] > -1)
-        continue;
+        continue; // If already on a segment.
       const depth = modf(value);  
       // Convert hand size from cm to pixels on given depth.
       const radius = Math.min(max_radius, segment_coef / depth * 0.8);
-      markConnectedPoints(x, x - row_offset, row, radius);
+      markConnectedPoints(x, x - row_offset, row, radius, segment_data);
     }
   }
-
   out2 = out1;
   out1 = out;
-  out = {segment_data: segment_data};
+  out = {segment_data: segment_data, net: net, netw: netw, neth: neth};
 }
 
-function markConnectedPoints(index, column, row, radius) {
+function markConnectedPoints(index, column, row, radius, segment_data) {
   connected.fill(false);
   connected[0] = true;
   links[index] = index;
