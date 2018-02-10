@@ -14,9 +14,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+const INTERPOLATE_INV = 1 / 20.0; // interpolate depth physics at 20 pixels.
+
 class DepthAndSegments {
   constructor(gl, drawGL = null) {
     this.gl = gl;
+    gl.depth_tex_unit = gl.depth_tex_unit | gl.TEXTURE0;
     initGL(gl, drawGL);
     reload();
     this.createDepthInfoCanvas();
@@ -76,7 +79,7 @@ class DepthAndSegments {
       return processed;
     }
     video_last_upload_time = video.currentTime;
-    gl.activeTexture(gl.TEXTURE0);
+    gl.activeTexture(gl.depth_tex_unit);
     gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
 
     // Upload the video frame to texture.
@@ -87,7 +90,7 @@ class DepthAndSegments {
     }
     
     if (drawGL && drawGL != gl) {
-      drawGL.activeTexture(gl.TEXTURE0);
+      drawGL.activeTexture(gl.depth_tex_unit);
       drawGL.bindTexture(gl.TEXTURE_2D, drawGL.depth_texture);
       drawGL.texImage2D(drawGL.TEXTURE_2D, 0, drawGL.RGBA, drawGL.RGBA, drawGL.FLOAT, video);     
     }
@@ -125,7 +128,7 @@ class DepthAndSegments {
     return getMvpMatrix(window.innerWidth, window.innerHeight);
   }
 
-  draw(mvp = null, lightmvp = null, light_position = null, shadow_map_unit = 0) {
+  draw(mvp = null, lightmvp, light_position, shadow_map_unit) {
     const gl = this.gl;
     if (!video_loaded)
       return;
@@ -140,14 +143,18 @@ class DepthAndSegments {
       gl.uniform1f(gl.u_draw_lighting, 1.0);
       gl.uniform1i(gl.render_u_shadow_map, shadow_map_unit);
     } else {
+      // TODO: separate program for shadow rendering.
       gl.uniform1f(gl.u_draw_lighting, 0);
+      // shadow map texture is bound to framebuffer. prevent loop as we use the
+      // same program for lighting and read from the same texture. 
+      gl.uniform1i(gl.render_u_shadow_map, shadow_map_unit + 1);
     }
 
     if (light_position)
       gl.uniform3fv(gl.render_u_light_position, light_position);
 
     gl.bindVertexArray(gl.depth_vao);
-    gl.activeTexture(gl.TEXTURE0);
+    gl.activeTexture(gl.depth_tex_unit);
     gl.bindTexture(gl.TEXTURE_2D, gl.depth_texture);
     gl.drawArrays(gl.POINTS, 0, width * height);
     gl.bindVertexArray(null);
@@ -199,7 +206,7 @@ class DepthAndSegments {
     gl.uniform2fv(shaderVar, depthIntrinsics.offset);
     gl.uniform2f(gl.getUniformLocation(program, "u_depth_texture_size"), width, height);
     var shaderDepthTexture = gl.getUniformLocation(program, "u_depth_texture");
-    gl.uniform1i(shaderDepthTexture, 0);
+    gl.uniform1i(shaderDepthTexture, gl.depth_tex_unit - gl.TEXTURE0);
 
     this.depth_focal_inv = [1 / depthIntrinsics.focalLength[0],
                             1 / depthIntrinsics.focalLength[1]];
@@ -342,6 +349,38 @@ class DepthAndSegments {
   // here we know it is encoded as negative. Saves one abs - premature optimization :)
   getDepthNonSkeleton(x, y) {
     return modf(-tf_output[y * width + x]);
+  }
+
+  getSegmentInterpolatedCount(segment) {
+    const end = this.getSegmentEnd(segment);
+    return (end.distance2D * INTERPOLATE_INV) | 0;  
+  }
+
+  // vec is float[3]: x, y in pixels define the screen point and depth is the captured
+  // value at the point.
+  getInterpolatedPoint(vec, segment, i) {
+    const end = this.getSegmentEnd(segment);
+    const coef = (i + 1) / (end.distance2D * INTERPOLATE_INV);
+    vec[0] = (segment.x + coef * (end.x - segment.x)) | 0;
+    vec[1] = (segment.y + coef * (end.y - segment.y)) | 0;
+    vec[2] = segment.depth + coef * (end.depth - segment.depth);
+  }
+
+  getSegmentEnd(seg) {
+    // TODO: move this to identifyJoints if used always.
+    let end = (seg.count_left > seg.count_right) ? seg.far_left : seg.far_right;
+    const jl = seg.far_left.hasOwnProperty("joint");
+    const jr = seg.far_right.hasOwnProperty("joint");
+    if (jl && !jr)
+      end = seg.far_right;
+    else if (jr && !jl)
+      end = seg.far_left;
+    if (!end.distance2D) {
+      const x = end.x - seg.x;
+      const y = end.y - seg.y;
+      end.distance2D = Math.sqrt(x * x + y * y);
+    }
+    return end;
   }
 }
 
@@ -624,7 +663,7 @@ function initGL(gl, drawGL) {
   var transform_feedback = gl.createTransformFeedback();
   gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, transform_feedback)
 
-  gl.uniform1i(gl.getUniformLocation(compute_program, "s_depth"), 0);
+  gl.uniform1i(gl.getUniformLocation(compute_program, "s_depth"), gl.depth_tex_unit - gl.TEXTURE0);
   gl.compute_u_x_flip = gl.getUniformLocation(compute_program, "x_flip");
   gl.uniform1i(gl.compute_u_x_flip, 0);
 
@@ -843,7 +882,7 @@ function processOnCPU() {
   segment_farthest_point_map_left = {};
   segment_farthest_point_map_right = {};
   const segment_data = {};
-  const net_inv = 1 / 60.0;
+  const net_inv = INTERPOLATE_INV;
   const netw = Math.ceil(width * net_inv);
   const neth = Math.ceil(height * net_inv);
   const net = (out ? out.net : new Array(netw * neth)).fill(-1);

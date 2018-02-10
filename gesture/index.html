@@ -106,6 +106,7 @@ body {
 
     uniform vec3 uLightPosition;
     uniform vec3 uEyePosition;
+    uniform float opacity;
     uniform sampler2D uTextureMap;
     uniform sampler2DShadow uShadowMap;
     uniform float uWithLighting;
@@ -119,11 +120,11 @@ body {
     out vec4 fragColor;
     void main() {
       vec3 shadowCoord = (vPositionFromLight.xyz / vPositionFromLight.w) / 2.0 + 0.5;
-      shadowCoord.z -= 0.01;
+      shadowCoord.z -= 0.0015;
       float shadow = texture(uShadowMap, shadowCoord);
 
       vec4 baseColor = texture(uTextureMap, vTexCoord) * uWithLighting;
-      baseColor.a = 1.0;
+      baseColor.a = opacity;
 
       vec3 normal = normalize(vNormal);
       vec3 eyeDirection = normalize(uEyePosition - vPosition);
@@ -149,14 +150,14 @@ body {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     
-    var app = PicoGL.createApp(canvas)
+    var app = PicoGL.createApp(canvas, {alpha: true})
     .clearColor(0.0, 0.0, 0.0, 1.0)
     .depthTest()
     .cullBackfaces();
 
     let physics;
     let depthseg = new DepthAndSegments(app.gl);
-    const DEBUG_DRAW_BONES = true;
+    const DEBUG_DRAW_BONES = false;
 
     document.getElementById("rotate-toggle").addEventListener("change", function() {
       depthseg.setXFlip(this.checked);
@@ -168,7 +169,9 @@ body {
     var shadowVsSource =  document.getElementById("shadow-vs").text.trim();
     var shadowFsSource =  document.getElementById("shadow-fs").text.trim();
     var shadowProgram = app.createProgram(shadowVsSource, shadowFsSource);
-    var shadowBuffer = app.createFramebuffer().depthTarget({compareMode: PicoGL.COMPARE_REF_TO_TEXTURE});
+    var shadowBuffer = app.createFramebuffer().depthTarget({compareMode: PicoGL.COMPARE_REF_TO_TEXTURE,
+                                                            minFilter: app.gl.LINEAR,
+                                                            magFilter: app.gl.NEAREST_MIPMAP_LINEAR});
 
     // SET UP MAIN PROGRAM
     var vsSource =  document.getElementById("main-vs").text.trim();
@@ -253,6 +256,7 @@ body {
         mass: 0, // ground
         visible: true,
         ground: 1,
+        opacity: 0.8
       },
       {
         translate: [0.1, 0.075, 0],
@@ -299,7 +303,7 @@ body {
     const POOL_OFFSET = boxes.length;
     const box_pool = {};
 
-    const SPOOL_OFFSET = 0;
+    const SPOOL_OFFSET = 2;
     var spheres = [];
     var netspheres = [];
 
@@ -330,6 +334,7 @@ body {
         box.mainDrawCall = app.createDrawCall(mainProgram, box.array)
         .uniform("uLightPosition", lightPosition)
         .uniform("uEyePosition", eyePosition)
+        .uniform("opacity", box.opacity || 1.0)
         .texture("uTextureMap", box.hasOwnProperty("frameid") ? bone :
                                 box.hasOwnProperty("ground") ? grid : texture)
         .texture("uShadowMap", shadowBuffer.depthTexture);
@@ -358,6 +363,17 @@ body {
         spheres.push(sphere);
         return sphere;
       };
+      
+      // SPOOL_OFFSET = 2 scene spheres.
+      for (let i = 0; i < SPOOL_OFFSET; ++i) {
+        const sphere = addNewSphere(spheres);
+        sphere.translate = [0.2 + i * 0.07, 0.08, 0.1 + i * 0.07];
+        sphere.scale = [0.04, 0.04, 0.04];
+        sphere.mass = 0.5;
+        sphere.visible = true;
+        delete sphere.frameid; // frame id is used for bones.
+        setupDraw(sphere);
+      }
 
       for (let i = 0; i < 50; i++) {
         setupDraw(addNewSphere(spheres));
@@ -372,7 +388,9 @@ body {
       const gravity = new Ammo.btVector3(0, -9.81, 0);
       physics.setGravity(gravity);
       const bt_zero_vec3 = new Ammo.btVector3(0, 0, 0);
-      const bt_box_inertia = new Ammo.btVector3(0, 0, 0);
+      const bt_inertia = new Ammo.btVector3(0, 0, 0);
+      const btvec = new Ammo.btVector3(0, 0, 0);
+      const btquaternion = new Ammo.btQuaternion(0, 0, 0, 0);
 
       let transform = new Ammo.btTransform();
       let transform1 = new Ammo.btTransform();
@@ -431,17 +449,17 @@ body {
       function createRigidBodySphere(sp, index) {
         let shape = new Ammo.btSphereShape(sp.scale[0]);
         transform.setIdentity();
-        transform.setOrigin(new Ammo.btVector3(sp.translate[0], sp.translate[1], sp.translate[2]));
-        transform.setRotation(new Ammo.btQuaternion(sp.quat[0], sp.quat[1], sp.quat[2], sp.quat[3]));
+        btvec.setValue(sp.translate[0], sp.translate[1], sp.translate[2]);
+        btquaternion.setValue(sp.quat[0], sp.quat[1], sp.quat[2], sp.quat[3]);
+        transform.setOrigin(btvec);
+        transform.setRotation(btquaternion);
         let motionState = new Ammo.btDefaultMotionState(transform);
 
-        let localInertia = new Ammo.btVector3(0, 0, 0);
-        shape.calculateLocalInertia(sp.mass, localInertia);
+        bt_inertia.setValue(0, 0, 0);
+        shape.calculateLocalInertia(sp.mass, bt_inertia);
 
-        let info = new Ammo.btRigidBodyConstructionInfo(sp.mass, motionState, shape, localInertia);
-        const is_finger = sp.hasOwnProperty("frameid");
-        if (is_finger) 
-          info.m_friction = 10.0; // high friction for hands.
+        let info = new Ammo.btRigidBodyConstructionInfo(sp.mass, motionState, shape, bt_inertia);
+        info.m_friction = 10.0; // high friction for hands.
         let body = new Ammo.btRigidBody(info);
         sp.physics_body = body;
         body.setUserPointer(sp);
@@ -451,10 +469,26 @@ body {
         sp.constraints = [];
         if (sp.mass > 0) {
           body.setActivationState(DISABLE_DEACTIVATION);
-        } else if (is_finger) {
+        } else if (sp.hasOwnProperty("frameid")) {
           body.setCollisionFlags(CF_NO_CONTACT_RESPONSE | CF_STATIC_OBJECT);
         }
         physics.addRigidBody(body);
+      }
+
+      function btToScene(s) {
+        let state = s.physics_body.getMotionState();
+        if (!state)
+          return;
+        state.getWorldTransform(transform);
+        let t = transform.getOrigin();
+        let q = transform.getRotation();
+        s.translate[0] = t.x();
+        s.translate[1] = t.y();
+        s.translate[2] = t.z();
+        s.quat[0] = q.x();
+        s.quat[1] = q.y();
+        s.quat[2] = q.z();
+        s.quat[3] = q.w();
       }
 
       function updatePhysics(time_delta) {
@@ -465,36 +499,12 @@ body {
         physics.stepSimulation(time_delta, 10);
         // TODO: rebuild ammmo.js to add tick callback or split this step to
         // multiple substep stepSimulation to check the contacts and manifolds.
-        addConnectionsForContacts();
-        for (let i = 1; i < boxes.length; i++) {
-          let box = boxes[i];
-          let state = box.physics_body.getMotionState();
-          if (!state)
-            continue;
-          state.getWorldTransform(transform);
-          let t = transform.getOrigin();
-          let q = transform.getRotation();
-          box.translate[0] = t.x();
-          box.translate[1] = t.y();
-          box.translate[2] = t.z();
-          box.quat[0] = q.x();
-          box.quat[1] = q.y();
-          box.quat[2] = q.z();
-          box.quat[3] = q.w();
-        }
-        for (let i = 0; i < spheres.length; i++) {
-          let s = spheres[i];
-          let state = s.physics_body.getMotionState();
-          if (!state)
-            continue;
-          state.getWorldTransform(transform);
-          // TODO: handle rotation once we have sphere scene objects
-          let t = transform.getOrigin();
-          s.translate[0] = t.x();
-          s.translate[1] = t.y();
-          s.translate[2] = t.z();
-        }
-       }
+        // TODO: testing disabled. addConnectionsForContacts();
+        for (let i = 1; i < boxes.length; i++)
+          btToScene(boxes[i]);
+        for (let i = 0; i < SPOOL_OFFSET; i++)
+          btToScene(spheres[i]);
+      }
 
       const tip = new glMatrix.ARRAY_TYPE(3);
       const base = new glMatrix.ARRAY_TYPE(3);
@@ -549,9 +559,11 @@ body {
         return sphere;
       }
 
-      // Convert scanned point values |p| to 3D |v|.
+      // Convert scanned point values |p| to 3D |v|. For all of the points we
+      // assign spheres of radius 0.02 - this is the reason the offset is 0.014
+      // as the sphere center should be behind the surface.
       function convertTo3D(v, x, y, d) {
-        const depth = depthseg.depth_scale * d + 0.007;
+        const depth = depthseg.depth_scale * d + 0.014;
         v[0] = depth * (x - depthseg.depth_offset[0]) * depthseg.depth_focal_inv[0];
         v[1] = depth * (y - depthseg.depth_offset[1]) * depthseg.depth_focal_inv[1];          
         v[2] = depth;
@@ -560,14 +572,8 @@ body {
       function initSegBuffer(seg, buffer) {
         // TODO: fix horizontal orientation
         // Convert segment endpoints to 3D world coordinates.
-        const p1 = seg;          
-        let p2 = (seg.count_left > seg.count_right) ? seg.far_left : seg.far_right;
-        const jl = seg.far_left.hasOwnProperty("joint");
-        const jr = seg.far_right.hasOwnProperty("joint");
-        if (jl && !jr)
-          p2 = seg.far_right;
-        else if (jr && !jl)
-          p2 = seg.far_left;
+        const p1 = seg;
+        const p2 = depthseg.getSegmentEnd(seg);         
 
         convertTo3D(tip, p1.x, p1.y, p1.depth); 
         vec3.transformMat4(buffer.world_tip, tip, depth_to_world_transform);
@@ -582,6 +588,8 @@ body {
         buffer.endpoint_tip = !p1.hasOwnProperty("joint");                   
       };
 
+      const viewscale = 1;
+      const MATCH_SPHERE_LIMIT = 0.0004 * viewscale * viewscale; // 2cm
       function getMatchingPreviousFrameSphere(world_center) {
         let nearest = Number.MAX_VALUE;
         let nearest_s = null;
@@ -597,7 +605,7 @@ body {
             nearest_s = s;
           }
         }
-        if (nearest < 0.0004) // 2cm
+        if (nearest < MATCH_SPHERE_LIMIT)
           return nearest_s;
         return null;
       }
@@ -618,7 +626,8 @@ body {
         vec3.copy(sp.translate, c);
         const body = sp.physics_body;
         transform.setIdentity();
-        transform.setOrigin(new Ammo.btVector3(c[0], c[1], c[2]));
+        btvec.setValue(c[0], c[1], c[2]);
+        transform.setOrigin(btvec);
         body.setWorldTransform(transform);
         body.getMotionState().setWorldTransform(transform);
         // if (sp.frameid == 0 || !contact) {
@@ -659,8 +668,8 @@ body {
           if(wbox.constraints.indexOf(constraint) == -1)
             console.error("wboxcindex == -1");
 
-          wbox.physics_body.getCollisionShape().calculateLocalInertia(wbox.mass, bt_box_inertia);   
-          wbox.physics_body.setMassProps(wbox.mass, bt_box_inertia);
+          wbox.physics_body.getCollisionShape().calculateLocalInertia(wbox.mass, bt_inertia);   
+          wbox.physics_body.setMassProps(wbox.mass, bt_inertia);
           wbox.holding_vector_recent = [];
            
           wbox.constraints.length = 0;
@@ -697,7 +706,29 @@ body {
         vec3.normalize(v, temp);
       }
 
-      
+      function assignSphereToPoint(sp, x, y, d) {
+        const body = sp.physics_body;
+        convertTo3D(temp, x, y, d); 
+        const c = sp.translate;
+        vec3.transformMat4(c, temp, depth_to_world_transform);
+        
+        sp.visible = DEBUG_DRAW_BONES;
+        // reposition the physics body
+        transform.setIdentity();
+        btvec.setValue(c[0], c[1], c[2]);
+        transform.setOrigin(btvec);
+        body.setWorldTransform(transform);
+        body.getMotionState().setWorldTransform(transform);
+        // if (sp.frameid == 0 || !contact) {
+          body.setLinearVelocity(bt_zero_vec3);
+          body.setAngularVelocity(bt_zero_vec3);
+          body.forceActivationState(ACTIVE_TAG);
+          body.setCollisionFlags(CF_STATIC_OBJECT);
+          body.updateInertiaTensor();
+        // }
+        sp.frameid = frameid;
+        sp.contact = false;
+      }
 
       function updateNet() {
         for (let i = netspheres.length; i < depthseg.out.net.length; i++) {
@@ -711,37 +742,19 @@ body {
         for (let j = 1; j < height - 1; j++) {
           for (let i = 1 + j * width, end = i + width - 2; i < end; i++) {
             const n = out.net[i];
-            const sp = netspheres[i];
-            const body = sp.physics_body;
+            const sp = netspheres[i];            
             if (n == -1) {
               // hide visible and physics.
               sp.visible = false;
+              const body = sp.physics_body;
               body.setLinearVelocity(bt_zero_vec3);
               body.setAngularVelocity(bt_zero_vec3);
               body.setCollisionFlags(CF_NO_CONTACT_RESPONSE | CF_STATIC_OBJECT);
               body.setActivationState(DISABLE_SIMULATION);
               continue;
             }
-            const d0 = d((n >> 16), n & 0xFF);            
-            convertTo3D(temp, (n >> 16), n & 0xFF, d0); 
-            // same as in assignSphereToSegmentEndPoint. TODO: refactor.
-            const c = sp.translate;
-            vec3.transformMat4(c, temp, depth_to_world_transform);
-            
-            sp.visible = DEBUG_DRAW_BONES;
-            // reposition the physics body
-            transform.setIdentity();
-            transform.setOrigin(new Ammo.btVector3(c[0], c[1], c[2]));
-            body.setWorldTransform(transform);
-            body.getMotionState().setWorldTransform(transform);
-            // if (sp.frameid == 0 || !contact) {
-              body.setLinearVelocity(bt_zero_vec3);
-              body.setAngularVelocity(bt_zero_vec3);
-              body.forceActivationState(ACTIVE_TAG);
-              body.setCollisionFlags(CF_STATIC_OBJECT);
-              body.updateInertiaTensor();
-            // }
-            sp.frameid = frameid;
+            const x = n >> 16, y = n & 0xFFFF;
+            assignSphereToPoint(sp, x, y, d(x, y));
           }
         }        
       }        
@@ -818,7 +831,6 @@ body {
             s.segment = segment_data[keys[nearest_k]];
           }
         }
-
 
         // The final step in assigning previous joints - based on
         // buffer.spX.s(phere), 
@@ -905,7 +917,7 @@ body {
           if (sp.frameid != frameid) {
             sp.frameid = 0;
             sp.visible = false; //sp.physics_body.isActive(); // false;
-            sp.buffer = 0;
+            sp.buffer = null;
           }
         }
 
@@ -914,15 +926,15 @@ body {
           const segment = segment_data[keys[k]];
           if (segment.hasOwnProperty("discarded"))
             continue;
-          const buffer = getSegBuffer(k);
-          if (!buffer.endpoint_tip && !buffer.sp1) {
-            // Get from the pool.
-            buffer.sp1 = getSphereFromPool();
-            assignSphereToSegmentEndPoint(buffer, "sp1", null, false);
+          const interpolated_count = depthseg.getSegmentInterpolatedCount(segment);
+          for (let i = 0; i < interpolated_count; i++) {
+            depthseg.getInterpolatedPoint(temp, segment, i);
+            const sp = getSphereFromPool();
+            assignSphereToPoint(sp, temp[0], temp[1], temp[2]);
           }
-          if (!buffer.endpoint_base && !buffer.sp2) {
-            buffer.sp2 = getSphereFromPool();
-            assignSphereToSegmentEndPoint(buffer, "sp2", null, false);
+          if (segment.hasOwnProperty("joint")) {
+            const sp = getSphereFromPool();
+            assignSphereToPoint(sp, segment.x, segment.y, segment.depth);            
           }
         }
 
@@ -960,116 +972,116 @@ body {
             transform.setIdentity();
             vec3.lerp(subtract, sp0.translate, sp1.translate, 0.5);
             vec3.add(wb.translate, subtract, wb.center_offset);
-            transform.setOrigin(new Ammo.btVector3(wb.translate[0], wb.translate[1], wb.translate[2]));
-            transform.setRotation(new Ammo.btQuaternion(wb.quat[0], wb.quat[1], wb.quat[2], wb.quat[3]));
+            btvec.setValue(wb.translate[0], wb.translate[1], wb.translate[2]);
+            transform.setOrigin(btvec);
+            btquaternion.setValue(wb.quat[0], wb.quat[1], wb.quat[2], wb.quat[3]);
+            transform.setRotation(btquaternion);
             body.setWorldTransform(transform);
-
             body.getMotionState().setWorldTransform(transform);
             // body.setLinearVelocity(bt_zero_vec3);
             // body.setAngularVelocity(bt_zero_vec3);
           }
         }
-
         updateNet();
+      }
 
+
+      // Can 2 manifolds hold the object? Both manifolds are on the same
+      // object, but different finger balls.
+      function canManifoldsHoldTheObject(con1, m2, ob, joint, finger) {
+        const m1 = con1.manifold;
+        let p1 = m1.getContactPoint(0);
+        const pA1 = p1.get_m_localPointA();
+        const pB1 = p1.get_m_localPointB();
+        let p2 = m2.getContactPoint(0);
+        const pA2 = p2.get_m_localPointA();
+        const pB2 = p2.get_m_localPointB();
+        // As these are the boxes, holding if pBs are in the same.
+        // object to hold is a box, so simplify this so that we hold it on
+        // opposite sides of the box.
+
+        let xdiff = Math.abs(pA1.x() - pA2.x());
+        let ydiff = Math.abs(pA1.y() - pA2.y());
+        let zdiff = Math.abs(pA1.z() - pA2.z());
+        if (!(xdiff > 0.9 * ob.scale[0] || ydiff > 0.9 * ob.scale[1] ||
+            zdiff > 0.9 * ob.scale[2]))
+          return false;
+        // Some more math: the direction of the finger; towards or from within
+        // the box determines if fingers can hold the object.
+        const finger1 = spheres[con1.finger_item];
+        const joint1 = finger1.buffer.sp1 == finger1 ? finger1.buffer.world_base
+                                                     : finger1.buffer.world_tip;
+        // If angle joint - fingertip - box-center is right or obtuse (> 90)
+        // then it can hold the box.
+        vec3.subtract(temp, ob.translate, finger1.translate);
+        vec3.subtract(temp1, joint1, finger1.translate);
+        const dot1 = vec3.dot(temp, temp1);
+        vec3.subtract(temp, ob.translate, finger.translate);
+        vec3.subtract(temp1, joint, finger.translate);
+        const dot = vec3.dot(temp, temp1);
+        return (dot1 <= 0 && dot <= 0);
+      }
+
+      function processManifold(i0, i1, manifold) {
+        if (!manifold)
+            console.error("undefined manifold");
+        i1 = i1 - SPHERES_OFFSET - SPOOL_OFFSET;
+        const ob = boxes[i0];
+        if (ob.constraints.length == 2 && ob.constraints[0].manifold == null)
+          return; // already two fingers holding the object, ignore other.
+        const finger = spheres[i1];
+        if (!finger.contact)
+          return;
+        const joint = finger.buffer.sp1 == finger ? finger.buffer.world_base
+                                                  : finger.buffer.world_tip;
+        for (let i = 0; i < ob.constraints.length; i++) {
+          const con1 = ob.constraints[i];
+          if (canManifoldsHoldTheObject(con1, manifold, ob, joint, finger)) {
+            // We found the pair, so create real joints and clear the rest.
+            // Create constraint from the manifold.                     
+            const body = ob.physics_body;
+                          
+            const finger1 = spheres[con1.finger_item];
+            const pt = con1.manifold.getContactPoint(0);
+            finger1.constraints.push(con1);
+            con1.manifold = null;
+
+            contact_spheres.add(con1.finger_item);
+
+            // The second finger:
+            const pt2 = manifold.getContactPoint(0);
+            const con2 = {world_item: i0, finger_item: i1, manifold: null};
+            ob.constraints = [con1, con2]; // remove all other
+            finger.constraints.push(con2);
+        
+            contact_spheres.add(i1);
+
+            ob.holding_vector = ob.holding_vector || new glMatrix.ARRAY_TYPE(3);
+            vec3.subtract(ob.holding_vector, finger.translate, finger1.translate);
+            ob.holding_length = vec3.length(ob.holding_vector);
+            vec3.scale(ob.holding_vector, ob.holding_vector, 1 / ob.holding_length);
+            ob.holding_quat = quat.clone(ob.quat);
+
+            ob.center_offset = ob.center_offset || new glMatrix.ARRAY_TYPE(3);
+            vec3.lerp(ob.center_offset, finger.translate, finger1.translate, 0.5);
+            vec3.subtract(ob.center_offset, ob.translate, ob.center_offset);
+
+            body.getCollisionShape().calculateLocalInertia(0, bt_inertia);   
+            body.setMassProps(0, bt_inertia);
+            body.setLinearVelocity(bt_zero_vec3);
+            body.setAngularVelocity(bt_zero_vec3);
+            // body.setCollisionFlags(body.getCollisionFlags() | (CF_KINEMATIC_OBJECT | ~CF_STATIC_OBJECT));
+            body.updateInertiaTensor();
+            return;
+          }
+        }
+
+        // Since it is not possible to hold an object, cache the manifold.
+        const con = {world_item: i0, finger_item: i1, manifold: manifold};
+        ob.constraints.push(con);
       }
 
       function addConnectionsForContacts() {
-
-        function processManifold(i0, i1, manifold) {
-          if (!manifold)
-              console.error("undefined manifold");
-          i1 = i1 - SPHERES_OFFSET - SPOOL_OFFSET;
-          const ob = boxes[i0];
-          if (ob.constraints.length == 2 && ob.constraints[0].manifold == null)
-            return; // already two fingers holding the object, ignore other.
-          const finger = spheres[i1];
-          const joint = finger.buffer.sp1 == finger ? finger.buffer.world_base
-                                                    : finger.buffer.world_tip;
-
-          // Can 2 manifolds hold the object? Both manifolds are on the same
-          // object, but different finger balls.
-          function canManifoldsHoldTheObject(con1, m2) {
-            const m1 = con1.manifold;
-            let p1 = m1.getContactPoint(0);
-            const pA1 = p1.get_m_localPointA();
-            const pB1 = p1.get_m_localPointB();
-            let p2 = m2.getContactPoint(0);
-            const pA2 = p2.get_m_localPointA();
-            const pB2 = p2.get_m_localPointB();
-            // As these are the boxes, holding if pBs are in the same.
-            // object to hold is a box, so simplify this so that we hold it on
-            // opposite sides of the box.
-
-            let xdiff = Math.abs(pA1.x() - pA2.x());
-            let ydiff = Math.abs(pA1.y() - pA2.y());
-            let zdiff = Math.abs(pA1.z() - pA2.z());
-            if (!(xdiff > 0.9 * ob.scale[0] || ydiff > 0.9 * ob.scale[1] ||
-                zdiff > 0.9 * ob.scale[2]))
-              return false;
-            // Some more math: the direction of the finger; towards or from within
-            // the box determines if fingers can hold the object.
-            const finger1 = spheres[con1.finger_item];
-            const joint1 = finger1.buffer.sp1 == finger1 ? finger1.buffer.world_base
-                                                         : finger1.buffer.world_tip;
-            // If angle joint - fingertip - box-center is right or obtuse (> 90)
-            // then it can hold the box.
-            vec3.subtract(temp, ob.translate, finger1.translate);
-            vec3.subtract(temp1, joint1, finger1.translate);
-            const dot1 = vec3.dot(temp, temp1);
-            vec3.subtract(temp, ob.translate, finger.translate);
-            vec3.subtract(temp1, joint, finger.translate);
-            const dot = vec3.dot(temp, temp1);
-            return (dot1 <= 0 && dot <= 0);
-          }
-
-          for (let i = 0; i < ob.constraints.length; i++) {
-            const con1 = ob.constraints[i];
-            if (canManifoldsHoldTheObject(con1, manifold)) {
-              // We found the pair, so create real joints and clear the rest.
-              // Create constraint from the manifold.                     
-              const body = ob.physics_body;
-                            
-              const finger1 = spheres[con1.finger_item];
-              const pt = con1.manifold.getContactPoint(0);
-              finger1.constraints.push(con1);
-              con1.manifold = null;
-
-              contact_spheres.add(con1.finger_item);
-
-              // The second finger:
-              const pt2 = manifold.getContactPoint(0);
-              const con2 = {world_item: i0, finger_item: i1, manifold: null};
-              ob.constraints = [con1, con2]; // remove all other
-              finger.constraints.push(con2);
-          
-              contact_spheres.add(i1);
-
-              ob.holding_vector = ob.holding_vector || new glMatrix.ARRAY_TYPE(3);
-              vec3.subtract(ob.holding_vector, finger.translate, finger1.translate);
-              ob.holding_length = vec3.length(ob.holding_vector);
-              vec3.scale(ob.holding_vector, ob.holding_vector, 1 / ob.holding_length);
-              ob.holding_quat = quat.clone(ob.quat);
-
-              ob.center_offset = ob.center_offset || new glMatrix.ARRAY_TYPE(3);
-              vec3.lerp(ob.center_offset, finger.translate, finger1.translate, 0.5);
-              vec3.subtract(ob.center_offset, ob.translate, ob.center_offset);
-
-              body.getCollisionShape().calculateLocalInertia(0, bt_box_inertia);   
-              body.setMassProps(0, bt_box_inertia);
-              body.setLinearVelocity(bt_zero_vec3);
-              body.setAngularVelocity(bt_zero_vec3);
-              // body.setCollisionFlags(body.getCollisionFlags() | (CF_KINEMATIC_OBJECT | ~CF_STATIC_OBJECT));
-              body.updateInertiaTensor();
-              return;
-            }
-          }
-
-          // Since it is not possible to hold an object, cache the manifold.
-          const con = {world_item: i0, finger_item: i1, manifold: manifold};
-          ob.constraints.push(con);
-        }
-
         const disp = physics.getDispatcher();
         for (let i = 0, num = disp.getNumManifolds(); i < num; i++) {
           const manifold = disp.getManifoldByIndexInternal(i);
@@ -1141,7 +1153,7 @@ body {
         }
         for (var i = 0, len = spheres.length; i < len; ++i) {
           if (spheres[i].visible)
-            updateUniforms(spheres[i], spheres[i].contact ? 1.0 : 0.0);
+            updateUniforms(spheres[i], (spheres[i].contact || i < SPOOL_OFFSET) ? 1.0 : 0.0);
         }
         for (var i = 0, len = netspheres.length; i < len; ++i) {
           if (netspheres[i].visible)
@@ -1150,6 +1162,8 @@ body {
 
         // Draw to shadow buffer.
         app.drawFramebuffer(shadowBuffer).clear();
+        mat4.multiply(draw_transform, lightViewProjMatrix, depth_to_world_transform);
+        depthseg.draw(draw_transform, null, null, shadowBuffer.depthTexture.currentUnit);
         for (var i = 0, len = boxes.length; i < len; ++i) {
           if (boxes[i].visible)
             boxes[i].shadowDrawCall.draw();
@@ -1158,11 +1172,11 @@ body {
           if (spheres[i].visible)
             spheres[i].shadowDrawCall.draw();
         }
-        mat4.multiply(draw_transform, lightViewProjMatrix, depth_to_world_transform);
-        depthseg.draw(draw_transform);
+
 
         // Draw to screen.
         app.defaultDrawFramebuffer().clear();
+        depthseg.draw(depth_mvp, draw_transform, light_position_depth, shadowBuffer.depthTexture.currentUnit);
         for (var i = 0, len = boxes.length; i < len; ++i) {
           if (boxes[i].visible)
             boxes[i].mainDrawCall.draw();
@@ -1175,7 +1189,6 @@ body {
           if (netspheres[i].visible)
             netspheres[i].mainDrawCall.draw();
         }
-        depthseg.draw(depth_mvp, draw_transform, light_position_depth, shadowBuffer.depthTexture.currentUnit);
 
         timer.end();
         requestAnimationFrame(draw);
