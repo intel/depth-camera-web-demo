@@ -22,7 +22,7 @@ class DepthAndSegments {
     gl.depth_tex_unit = gl.depth_tex_unit | gl.TEXTURE0;
     initGL(gl, drawGL);
     reload();
-    this.createDepthInfoCanvas();
+    // this.createDepthInfoCanvas();
     this.out = {};
     this.out1 = {};
     this.out.segment_data = {};
@@ -185,7 +185,11 @@ class DepthAndSegments {
     height = video.videoHeight;
     this.width = width;
     this.height = height;
-    this.setCameraParameters(DepthCamera.getCameraCalibration(stream));
+    try {
+      this.setCameraParameters(DepthCamera.getCameraCalibration(stream));
+    } catch(e) {
+      return handleError(e);
+    }
     if (this.depthVideoLoadedCallback)
       this.depthVideoLoadedCallback();
   }
@@ -386,18 +390,13 @@ class DepthAndSegments {
 
 var video_loaded = false;
 
-function showErrorToUser(message) {
-  var div = document.getElementById("errormessages");
-  div.innerHTML += message + "</br>";
-}
-
-let retrycount = 2;
 function handleError(error) {
+  if (error.name == 'TrackStartError' || error.name == 'UnsupportedSizeError') {
+    return reload();
+  }
+  if (error.name == "OverconstrainedError" && error.constraint == "videoKind")
+    return console.error("No device with \"videoKind == depth\" capture available.");
   console.error(error);
-  if (error.name == 'TrackStartError' && retrycount-- > 0)
-    return window.location.reload();
-  showErrorToUser("Error:" + (error.name ? (error.name + ": " + error.message)
-                                         : error));
 }
 
 // Offscreen |video| we use to upload depth content to WebGL texture.

@@ -47,7 +47,7 @@ body {
     <div>
       <a href="https://github.com/01org/depth-camera-web-demo">Source code on GitHub</a>
     </div>
-      <div id="errormessages" style="color: red; font-size: x-large;"></div>
+    <div id="console" style="color: red; font-size: x-large;"></div>
 
   </div>
   <div id="rotate-control">
@@ -139,6 +139,18 @@ body {
   </script> 
   <script type="text/javascript">
     "use strict";
+    let error = window.console.error;
+    window.console.error = (message, ...rest) => {
+      let target = document.querySelector('#console');
+      error.call(window.console, message, ...rest);
+
+      if (message instanceof Error) {
+        message = `${message.name}: ${message.message}`;
+      }
+
+      target.innerHTML += `${message}<br>`;
+    }
+
     utils.addTimerElement();
 
     var canvas = document.getElementById("gl-canvas");
@@ -214,7 +226,7 @@ body {
     // UNIFORMS
     var projMatrix = mat4.create();
     var viewMatrix = mat4.create();
-    var eyePosition = vec3.fromValues(0, 0.4, 0.4);
+    var eyePosition = vec3.fromValues(0, 0.5, 0.3);
     mat4.lookAt(viewMatrix, eyePosition, vec3.fromValues(0, 0, 0), vec3.fromValues(0, 1, 0));
 
     var viewProjMatrix = mat4.create();
@@ -223,7 +235,7 @@ body {
     const depth_to_world_transform = mat4.create();
     const world_to_depth_transform = mat4.create();
 
-    var lightPosition = vec3.fromValues(0.7, 0.5, 0.1); 
+    var lightPosition = vec3.fromValues(0.6, 0.5, 0.1);
     var lightViewMatrix = mat4.create();
     var lightViewProjMatrix = mat4.create();
     const light_position_depth = vec3.create();
@@ -497,9 +509,7 @@ body {
             (boxes[3].constraints.length & 1) != 0)
           console.error("expected even number of constraints");
         physics.stepSimulation(time_delta, 10);
-        // TODO: rebuild ammmo.js to add tick callback or split this step to
-        // multiple substep stepSimulation to check the contacts and manifolds.
-        // TODO: testing disabled. addConnectionsForContacts();
+        addConnectionsForContacts();
         for (let i = 1; i < boxes.length; i++)
           btToScene(boxes[i]);
         for (let i = 0; i < SPOOL_OFFSET; i++)
@@ -517,6 +527,11 @@ body {
       const temp = new glMatrix.ARRAY_TYPE(3);
       const temp1 = new glMatrix.ARRAY_TYPE(3);
 
+      function isAngleObtuse(a, b, c) {
+        vec3.subtract(temp, a, b);
+        vec3.subtract(temp1, c, b);
+        return (vec3.dot(temp, temp1) < 0);
+      }
 
       const segbuffer = [];
       function getSegBuffer(i) {
@@ -610,12 +625,14 @@ body {
         return null;
       }
 
-      // |contact| = true for e.g. fingertip as they could hold the object.
+      // |force| is true for previous frame contact spheres - spheres that were
+      // holding the box. We map them to the nearest, so that the picked object
+      // wouldn't jump around.
       // Except the potential contact points, the rest of depth segments
       // endpoints are not mapped to previous frame's spheres, but always to
       // a sphere not used in previous frame - cleaned history sphere from the
       // pool is assigned for the depth point. 
-      function assignSphereToSegmentEndPoint(buffer, spkey, segment, contact = true) {
+      function assignContactSphereToSegmentEndPoint(buffer, spkey, segment, force) {
         const sp = buffer[spkey];
         if (sp == null)
           return;
@@ -637,7 +654,12 @@ body {
           body.setCollisionFlags(CF_STATIC_OBJECT);
           body.updateInertiaTensor();
         // }
-        sp.contact = contact;
+        // if contact is not forced, make it so that it happens only when fingers
+        // are well distinguished.
+        sp.contact = force || (((segment.far_left.distance2D | 0) +
+                                (segment.far_right.distance2D | 0) > 4) &&
+                               (segment.count_left + segment.count_right > 8));
+        sp.segment_id = segment.index;
         sp.frameid = frameid;
         sp.buffer = buffer;
       }
@@ -680,11 +702,11 @@ body {
 
       function filterOutNoise(v, list) {
         // Filter position noise.
-        const p = list.length > 4 ? list.shift() : new glMatrix.ARRAY_TYPE(3);
+        const p = list.length > 6 ? list.shift() : new glMatrix.ARRAY_TYPE(3);
         vec3.copy(p, v);
         list.push(p);
 
-        if (list.length < 3)
+        if (list.length < 5)
           return;
 
         vec3.copy(temp, v);
@@ -853,11 +875,11 @@ body {
           // assign the sphere.
           if (buffer.endpoint_tip && buffer.sp1 &&
               bothHoldsValidAssignment("sp1", buffer)) {
-            assignSphereToSegmentEndPoint(buffer, "sp1", buffer.sp1.segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp1", buffer.sp1.segment);
           }
           if (buffer.endpoint_base && buffer.sp2 &&
               bothHoldsValidAssignment("sp2", buffer)) {
-            assignSphereToSegmentEndPoint(buffer, "sp2", buffer.sp2.segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp2", buffer.sp2.segment);
           }
         }
         
@@ -867,27 +889,25 @@ body {
           const buffer = getSegBuffer(k);
           if (buffer.endpoint_tip && !buffer.sp1) {
             buffer.sp1 = getMatchingPreviousFrameSphere(buffer.world_tip);
-            assignSphereToSegmentEndPoint(buffer, "sp1", segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp1", segment);
           }
           if (buffer.endpoint_base && !buffer.sp2) {
             buffer.sp2 = getMatchingPreviousFrameSphere(buffer.world_base);
-            assignSphereToSegmentEndPoint(buffer, "sp2", segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp2", segment);
           }
         }
 
         for (let k = 0; k < keys.length; k++) {
           const segment = segment_data[keys[k]];
-          if (segment.hasOwnProperty("discarded"))
-            continue;
           const buffer = getSegBuffer(k);
           if (buffer.endpoint_tip && !buffer.sp1) {
             // Get from the pool.
             buffer.sp1 = getSphereFromPool();
-            assignSphereToSegmentEndPoint(buffer, "sp1", segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp1", segment);
           }
           if (buffer.endpoint_base && !buffer.sp2) {
             buffer.sp2 = getSphereFromPool();
-            assignSphereToSegmentEndPoint(buffer, "sp2", segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp2", segment);
           }
         }
 
@@ -924,8 +944,6 @@ body {
         // Non contact areas get spheres assigned too.
         for (let k = 0; k < keys.length; k++) {
           const segment = segment_data[keys[k]];
-          if (segment.hasOwnProperty("discarded"))
-            continue;
           const interpolated_count = depthseg.getSegmentInterpolatedCount(segment);
           for (let i = 0; i < interpolated_count; i++) {
             depthseg.getInterpolatedPoint(temp, segment, i);
@@ -952,7 +970,7 @@ body {
             // If length between fingers is > threshold * initial holding length,
             // drop it.
             const hold_length = vec3.length(subtract);
-            if (hold_length > 1.15 * wb.holding_length) {
+            if (hold_length > 1.5 * wb.holding_length) {
               // drop the box.
               dropObjectsHeldBySphere(sp0, wb.constraints[0].finger_item);
               continue;
@@ -985,21 +1003,29 @@ body {
         updateNet();
       }
 
-
       // Can 2 manifolds hold the object? Both manifolds are on the same
       // object, but different finger balls.
       function canManifoldsHoldTheObject(con1, m2, ob, joint, finger) {
         const m1 = con1.manifold;
         let p1 = m1.getContactPoint(0);
+        let p2 = m2.getContactPoint(0);
+
+        // First, let's not allow picking objects from the lower side - to
+        // prevent this happening when carrying objects.
+        // It is box, so on.scale[0] is sufficient - otherwise, use the minimum.
+        const ymin = ob.translate[1] - ob.scale[0] * 0.5;
+        if (p1.get_m_positionWorldOnA().y() < ymin ||
+            p2.get_m_positionWorldOnA().y() < ymin) {
+          return false;
+        }
         const pA1 = p1.get_m_localPointA();
         const pB1 = p1.get_m_localPointB();
-        let p2 = m2.getContactPoint(0);
         const pA2 = p2.get_m_localPointA();
         const pB2 = p2.get_m_localPointB();
+
         // As these are the boxes, holding if pBs are in the same.
         // object to hold is a box, so simplify this so that we hold it on
         // opposite sides of the box.
-
         let xdiff = Math.abs(pA1.x() - pA2.x());
         let ydiff = Math.abs(pA1.y() - pA2.y());
         let zdiff = Math.abs(pA1.z() - pA2.z());
@@ -1011,22 +1037,33 @@ body {
         const finger1 = spheres[con1.finger_item];
         const joint1 = finger1.buffer.sp1 == finger1 ? finger1.buffer.world_base
                                                      : finger1.buffer.world_tip;
-        // If angle joint - fingertip - box-center is right or obtuse (> 90)
-        // then it can hold the box.
-        vec3.subtract(temp, ob.translate, finger1.translate);
-        vec3.subtract(temp1, joint1, finger1.translate);
-        const dot1 = vec3.dot(temp, temp1);
-        vec3.subtract(temp, ob.translate, finger.translate);
-        vec3.subtract(temp1, joint, finger.translate);
-        const dot = vec3.dot(temp, temp1);
-        return (dot1 <= 0 && dot <= 0);
+        // All together, we check 4 angles: joint - fingertip(contact) - center
+        // of object for both fingers and joint - fingertip(contact) - center of
+        // the grip between two points.
+        // If all angles are obtuse (> 90) then it can hold the box.
+        if (!isAngleObtuse(ob.translate, finger1.translate, joint1))
+          return false;
+
+        if (!isAngleObtuse(ob.translate, finger.translate, joint))
+          return false;
+
+        ob.center_offset = ob.center_offset || new glMatrix.ARRAY_TYPE(3);
+        vec3.lerp(ob.center_offset, finger.translate, finger1.translate, 0.5);
+
+        if (!isAngleObtuse(ob.center_offset, finger1.translate, joint1))
+          return false;
+
+        if (!isAngleObtuse(ob.center_offset, finger.translate, joint))
+          return false;
+
+        return true;
       }
 
       function processManifold(i0, i1, manifold) {
         if (!manifold)
             console.error("undefined manifold");
-        i1 = i1 - SPHERES_OFFSET - SPOOL_OFFSET;
-        const ob = boxes[i0];
+        i1 = i1 - SPHERES_OFFSET;
+        const ob = i0 < SPHERES_OFFSET ? boxes[i0] : spheres[i0 - SPHERES_OFFSET];
         if (ob.constraints.length == 2 && ob.constraints[0].manifold == null)
           return; // already two fingers holding the object, ignore other.
         const finger = spheres[i1];
@@ -1062,7 +1099,6 @@ body {
             vec3.scale(ob.holding_vector, ob.holding_vector, 1 / ob.holding_length);
             ob.holding_quat = quat.clone(ob.quat);
 
-            ob.center_offset = ob.center_offset || new glMatrix.ARRAY_TYPE(3);
             vec3.lerp(ob.center_offset, finger.translate, finger1.translate, 0.5);
             vec3.subtract(ob.center_offset, ob.translate, ob.center_offset);
 
@@ -1091,6 +1127,8 @@ body {
           const i0 = manifold.getBody0().getUserIndex();
           const i1 = manifold.getBody1().getUserIndex();
           if(i0 > i1) throw "first one should be less than the second";
+          if (i0 >= SPHERES_OFFSET)
+            continue; // let's pick only boxes.
           if (i1 < SPHERES_OFFSET + SPOOL_OFFSET)
             continue;
           if (i1 >= NETSPHERES_OFFSET)

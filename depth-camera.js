@@ -25,10 +25,31 @@
         throw new Error("Your browser doesn't support the required mediaDevices APIs.");
       }
 
+      // Use videoKind if it is supported. At the moment it is experimental; to
+      // use it. Chrome needs to be started with command line argument:
+      // --enable-blink-features=MediaCaptureDepthVideoKind
+      const supported_constraints = navigator.mediaDevices.getSupportedConstraints();
+      if (supported_constraints.videoKind) {
+        let stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            videoKind: {exact: "depth"},
+            frameRate: {exact: 60}
+          }
+        });
+        const track = stream.getVideoTracks()[0];
+        let settings = track.getSettings ? track.getSettings() : null;
+        // TODO: following is a browser bug if happening.
+        if (settings.videoKind != "depth")
+          throw new Error("No RealSense depth camera connected.");
+        return stream;
+      }
+
+      // We cannot use videoKind yet, so try to make a constraint that would
+      // most likely resolve to a depth camera. Later, we use camera label to
+      // check if we really got a depth track.
       const constraints = {
         audio: false,
         video: {
-          // We don't use videoKind as it is still under development.
           // videoKind: {exact: "depth"}, R200 related hack: prefer
           // depth (width = 628) to IR (width = 641) stream.
           width: {ideal: 628},
@@ -60,7 +81,6 @@
           }
         }
         stream = await navigator.mediaDevices.getUserMedia(constraints);
-        track = stream.getVideoTracks()[0];
       }
       return stream;
     }
@@ -136,6 +156,14 @@
       MODIFIED_BROWN_CONRADY: 1,
       INVERSE_BROWN_CONRADY: 2,
     };
+
+    function throwUnsupportedSizeError() {
+      const error = new Error("Depth intrinsics for size " + width + "x" +
+                               height + " are not available.");
+      error.name = "UnsupportedSizeError";
+      throw error;
+    }
+
     let result;
     if (cameraName === "R200")  {
       result = {
@@ -152,8 +180,7 @@
               focalLength: [447.320953369140625, 447.320953369140625],
             };
           } else {
-            throw new Error("Depth intrinsics for size " + width + "x" +
-                            height + " are not available.");
+            throwUnsupportedSizeError();
           }
         },
         colorOffset: new Float32Array(
@@ -191,8 +218,7 @@
               focalLength: [475.900726318359375, 475.900726318359375],
             };
           } else {
-            throw new Error("Depth intrinsics for size " + width + "x" +
-                            height + " are not available.");
+            throwUnsupportedSizeError();
           }
         },
         colorOffset: new Float32Array(
@@ -233,8 +259,7 @@
               focalLength: [445.920288, 445.920288],
             };
           } else {
-            throw new Error("Depth intrinsics for size " + width + "x" +
-                            height + " are not available.");
+            throwUnsupportedSizeError();
           }
         },
         colorOffset: new Float32Array(
@@ -270,8 +295,7 @@
               focalLength: [402.60308837890625, 402.60308837890625],
             };
           } else {
-            throw new Error("Depth intrinsics for size " + width + "x" +
-                            height + " are not available.");
+            throwUnsupportedSizeError();
           }
         },
         colorOffset: new Float32Array(
