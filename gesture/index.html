@@ -509,11 +509,11 @@ body {
             (boxes[3].constraints.length & 1) != 0)
           console.error("expected even number of constraints");
         physics.stepSimulation(time_delta, 10);
-        addConnectionsForContacts();
         for (let i = 1; i < boxes.length; i++)
           btToScene(boxes[i]);
         for (let i = 0; i < SPOOL_OFFSET; i++)
           btToScene(spheres[i]);
+        addConnectionsForContacts();
       }
 
       const tip = new glMatrix.ARRAY_TYPE(3);
@@ -659,7 +659,7 @@ body {
         sp.contact = force || (((segment.far_left.distance2D | 0) +
                                 (segment.far_right.distance2D | 0) > 4) &&
                                (segment.count_left + segment.count_right > 8));
-        sp.segment_id = segment.index;
+        sp.segment_id = segment.index; // debugging purpose only.
         sp.frameid = frameid;
         sp.buffer = buffer;
       }
@@ -866,6 +866,7 @@ body {
             return false;
           return buffer[key + "_square"] < 0.01;
         }
+
         for (let k = 0; k < keys.length; k++) {
           const buffer = getSegBuffer(k);
           // We need another sub-step here: check the distances and accept
@@ -875,11 +876,11 @@ body {
           // assign the sphere.
           if (buffer.endpoint_tip && buffer.sp1 &&
               bothHoldsValidAssignment("sp1", buffer)) {
-            assignContactSphereToSegmentEndPoint(buffer, "sp1", buffer.sp1.segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp1", buffer.sp1.segment, true);
           }
           if (buffer.endpoint_base && buffer.sp2 &&
               bothHoldsValidAssignment("sp2", buffer)) {
-            assignContactSphereToSegmentEndPoint(buffer, "sp2", buffer.sp2.segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp2", buffer.sp2.segment, true);
           }
         }
         
@@ -1007,8 +1008,8 @@ body {
       // object, but different finger balls.
       function canManifoldsHoldTheObject(con1, m2, ob, joint, finger) {
         const m1 = con1.manifold;
-        let p1 = m1.getContactPoint(0);
-        let p2 = m2.getContactPoint(0);
+        const p1 = m1.getContactPoint(0);
+        const p2 = m2.getContactPoint(0);
 
         // First, let's not allow picking objects from the lower side - to
         // prevent this happening when carrying objects.
@@ -1026,9 +1027,9 @@ body {
         // As these are the boxes, holding if pBs are in the same.
         // object to hold is a box, so simplify this so that we hold it on
         // opposite sides of the box.
-        let xdiff = Math.abs(pA1.x() - pA2.x());
-        let ydiff = Math.abs(pA1.y() - pA2.y());
-        let zdiff = Math.abs(pA1.z() - pA2.z());
+        const xdiff = Math.abs(pA1.x() - pA2.x());
+        const ydiff = Math.abs(pA1.y() - pA2.y());
+        const zdiff = Math.abs(pA1.z() - pA2.z());
         if (!(xdiff > 0.9 * ob.scale[0] || ydiff > 0.9 * ob.scale[1] ||
             zdiff > 0.9 * ob.scale[2]))
           return false;

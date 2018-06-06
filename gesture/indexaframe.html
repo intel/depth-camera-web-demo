@@ -3,7 +3,7 @@
 <head>
   <title>Depth Capture Based Hand Interaction Demo</title>
   <script src="../libs/ammo.js/ammo.js"></script>
-  <script src="../libs/aframe/aframe-v0.7.1.js"></script>
+  <script src="../libs/aframe/aframe-v0.8.0.js"></script>
   <script src="../libs/gl-matrix.js"></script>
   <script src="../libs/picogl.js/picogl.js"></script>
   <script src="../libs/picogl.js/utils.js"></script>
@@ -50,6 +50,18 @@ body {
 
   <script type="text/javascript">
     "use strict";
+    let error = window.console.error;
+    window.console.error = (message, ...rest) => {
+      let target = document.querySelector('#console');
+      error.call(window.console, message, ...rest);
+
+      if (message instanceof Error) {
+        message = `${message.name}: ${message.message}`;
+      }
+
+      target.innerHTML += `${message}<br>`;
+    }
+
     utils.addTimerElement();
 
     const canvas = document.createElement("canvas");
@@ -208,9 +220,7 @@ body {
         shape.calculateLocalInertia(sp.mass, bt_inertia);
 
         let info = new Ammo.btRigidBodyConstructionInfo(sp.mass, motionState, shape, bt_inertia);
-        const is_finger = sp.hasOwnProperty("frameid");
-        if (is_finger) 
-          info.m_friction = 10.0; // high friction for hands.
+        info.m_friction = 10.0; // high friction for hands.
         let body = new Ammo.btRigidBody(info);
         sp.physics_body = body;
         body.setUserPointer(sp);
@@ -220,7 +230,7 @@ body {
         sp.constraints = [];
         if (sp.mass > 0) {
           body.setActivationState(DISABLE_DEACTIVATION);
-        } else if (is_finger) {
+        } else if (sp.hasOwnProperty("frameid")) {
           body.setCollisionFlags(CF_NO_CONTACT_RESPONSE | CF_STATIC_OBJECT);
         }
         physics.addRigidBody(body);
@@ -234,7 +244,6 @@ body {
       const yUnitVec3 = vec3.fromValues(0,1,0);
       const far_away = new Ammo.btTransform();
       far_away.setOrigin(new Ammo.btVector3(-200, -200, -200));
-
 
       for (var i = 0, len = boxes.length; i < len; ++i)
         createRigidBody(i);
@@ -311,12 +320,14 @@ body {
         return null;
       }
 
-      // |contact| = true for e.g. fingertip as they could hold the object.
+      // |force| is true for previous frame contact spheres - spheres that were
+      // holding the box. We map them to the nearest, so that the picked object
+      // wouldn't jump around.
       // Except the potential contact points, the rest of depth segments
       // endpoints are not mapped to previous frame's spheres, but always to
       // a sphere not used in previous frame - cleaned history sphere from the
       // pool is assigned for the depth point. 
-      function assignSphereToSegmentEndPoint(buffer, spkey, segment, contact = true) {
+      function assignContactSphereToSegmentEndPoint(buffer, spkey, segment, force) {
         const sp = buffer[spkey];
         if (sp == null)
           return;
@@ -338,7 +349,12 @@ body {
           body.setCollisionFlags(CF_STATIC_OBJECT);
           body.updateInertiaTensor();
         // }
-        sp.contact = contact;
+        // if contact is not forced, make it so that it happens only when fingers
+        // are well distinguished.
+        sp.contact = force || (((segment.far_left.distance2D | 0) +
+                                (segment.far_right.distance2D | 0) > 4) &&
+                               (segment.count_left + segment.count_right > 8));
+        sp.segment_id = segment.index; // debugging purpose only.
         sp.frameid = frameid;
         sp.buffer = buffer;
       }
@@ -381,11 +397,11 @@ body {
 
       function filterOutNoise(v, list) {
         // Filter position noise.
-        const p = list.length > 4 ? list.shift() : new glMatrix.ARRAY_TYPE(3);
+        const p = list.length > 6 ? list.shift() : new glMatrix.ARRAY_TYPE(3);
         vec3.copy(p, v);
         list.push(p);
 
-        if (list.length < 3)
+        if (list.length < 5)
           return;
 
         vec3.copy(temp, v);
@@ -572,11 +588,11 @@ body {
           // assign the sphere.
           if (buffer.endpoint_tip && buffer.sp1 &&
               bothHoldsValidAssignment("sp1", buffer)) {
-            assignSphereToSegmentEndPoint(buffer, "sp1", buffer.sp1.segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp1", buffer.sp1.segment, true);
           }
           if (buffer.endpoint_base && buffer.sp2 &&
               bothHoldsValidAssignment("sp2", buffer)) {
-            assignSphereToSegmentEndPoint(buffer, "sp2", buffer.sp2.segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp2", buffer.sp2.segment, true);
           }
         }
         
@@ -586,27 +602,25 @@ body {
           const buffer = getSegBuffer(k);
           if (buffer.endpoint_tip && !buffer.sp1) {
             buffer.sp1 = getMatchingPreviousFrameSphere(buffer.world_tip);
-            assignSphereToSegmentEndPoint(buffer, "sp1", segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp1", segment);
           }
           if (buffer.endpoint_base && !buffer.sp2) {
             buffer.sp2 = getMatchingPreviousFrameSphere(buffer.world_base);
-            assignSphereToSegmentEndPoint(buffer, "sp2", segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp2", segment);
           }
         }
 
         for (let k = 0; k < keys.length; k++) {
           const segment = segment_data[keys[k]];
-          if (segment.hasOwnProperty("discarded"))
-            continue;
           const buffer = getSegBuffer(k);
           if (buffer.endpoint_tip && !buffer.sp1) {
             // Get from the pool.
             buffer.sp1 = getSphereFromPool();
-            assignSphereToSegmentEndPoint(buffer, "sp1", segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp1", segment);
           }
           if (buffer.endpoint_base && !buffer.sp2) {
             buffer.sp2 = getSphereFromPool();
-            assignSphereToSegmentEndPoint(buffer, "sp2", segment);
+            assignContactSphereToSegmentEndPoint(buffer, "sp2", segment);
           }
         }
 
@@ -643,8 +657,6 @@ body {
         // Non contact areas get spheres assigned too.
         for (let k = 0; k < keys.length; k++) {
           const segment = segment_data[keys[k]];
-          if (segment.hasOwnProperty("discarded"))
-            continue;
           const interpolated_count = depthseg.getSegmentInterpolatedCount(segment);
           for (let i = 0; i < interpolated_count; i++) {
             depthseg.getInterpolatedPoint(temp, segment, i);
@@ -671,7 +683,7 @@ body {
             // If length between fingers is > threshold * initial holding length,
             // drop it.
             const hold_length = vec3.length(subtract);
-            if (hold_length > 1.15 * wb.holding_length) {
+            if (hold_length > 1.5 * wb.holding_length) {
               // drop the box.
               dropObjectsHeldBySphere(sp0, wb.constraints[0].finger_item);
               continue;
@@ -707,23 +719,38 @@ body {
       }   
     };
     
+    function isAngleObtuse(a, b, c) {
+      vec3.subtract(temp, a, b);
+      vec3.subtract(temp1, c, b);
+      return (vec3.dot(temp, temp1) < 0);
+    }
+
     // Can 2 manifolds hold the object? Both manifolds are on the same
     // object, but different finger balls.
     function canManifoldsHoldTheObject(con1, m2, ob, joint, finger) {
       const m1 = con1.manifold;
-      let p1 = m1.getContactPoint(0);
+      const p1 = m1.getContactPoint(0);
+      const p2 = m2.getContactPoint(0);
+
+      // First, let's not allow picking objects from the lower side - to
+      // prevent this happening when carrying objects.
+      // It is box, so on.scale[0] is sufficient - otherwise, use the minimum.
+      const ymin = ob.pos[1] - ob.scale[0] * 0.5;
+      if (p1.get_m_positionWorldOnA().y() < ymin ||
+          p2.get_m_positionWorldOnA().y() < ymin) {
+        return false;
+      }
       const pA1 = p1.get_m_localPointA();
       const pB1 = p1.get_m_localPointB();
-      let p2 = m2.getContactPoint(0);
       const pA2 = p2.get_m_localPointA();
       const pB2 = p2.get_m_localPointB();
+
       // As these are the boxes, holding if pBs are in the same.
       // object to hold is a box, so simplify this so that we hold it on
       // opposite sides of the box.
-
-      let xdiff = Math.abs(pA1.x() - pA2.x());
-      let ydiff = Math.abs(pA1.y() - pA2.y());
-      let zdiff = Math.abs(pA1.z() - pA2.z());
+      const xdiff = Math.abs(pA1.x() - pA2.x());
+      const ydiff = Math.abs(pA1.y() - pA2.y());
+      const zdiff = Math.abs(pA1.z() - pA2.z());
       if (!(xdiff > 0.9 * ob.scale[0] || ydiff > 0.9 * ob.scale[1] ||
           zdiff > 0.9 * ob.scale[2]))
         return false;
@@ -732,25 +759,34 @@ body {
       const finger1 = spheres[con1.finger_item];
       const joint1 = finger1.buffer.sp1 == finger1 ? finger1.buffer.world_base
                                                    : finger1.buffer.world_tip;
-      // If the angle joint - fingertip - box-center is right or obtuse (> 90)
-      // then it can hold the box.
 
-      updateObjectData(ob);
-      vec3.subtract(temp, ob.pos, finger1.translate);
-      vec3.subtract(temp1, joint1, finger1.translate);
-      const dot1 = vec3.dot(temp, temp1);
-      vec3.subtract(temp, ob.pos, finger.translate);
-      vec3.subtract(temp1, joint, finger.translate);
-      const dot = vec3.dot(temp, temp1);
-      // Negative dot product for obtuse angles.
-      return (dot1 <= 0 && dot <= 0);
+      // All together, we check 4 angles: joint - fingertip(contact) - center
+      // of object for both fingers and joint - fingertip(contact) - center of
+      // the grip between two points.
+      // If all angles are obtuse (> 90) then it can hold the box.
+      if (!isAngleObtuse(ob.pos, finger1.translate, joint1))
+        return false;
+
+      if (!isAngleObtuse(ob.pos, finger.translate, joint))
+        return false;
+
+      ob.center_offset = ob.center_offset || new glMatrix.ARRAY_TYPE(3);
+      vec3.lerp(ob.center_offset, finger.translate, finger1.translate, 0.5);
+
+      if (!isAngleObtuse(ob.center_offset, finger1.translate, joint1))
+        return false;
+
+      if (!isAngleObtuse(ob.center_offset, finger.translate, joint))
+        return false;
+
+      return true;
     }
 
     function processManifold(i0, i1, manifold) {
       if (!manifold)
           console.error("undefined manifold");
-      i1 = i1 - SPHERES_OFFSET - SPOOL_OFFSET;
-      const ob = boxes[i0];
+      i1 = i1 - SPHERES_OFFSET;
+      const ob = i0 < SPHERES_OFFSET ? boxes[i0] : spheres[i0 - SPHERES_OFFSET];
       if (ob.constraints.length == 2 && ob.constraints[0].manifold == null)
         return; // already two fingers holding the object, ignore other.
       const finger = spheres[i1];
@@ -786,9 +822,7 @@ body {
           vec3.scale(ob.holding_vector, ob.holding_vector, 1 / ob.holding_length);
           ob.holding_quat = quat.clone(ob.quat);
 
-          ob.center_offset = ob.center_offset || new glMatrix.ARRAY_TYPE(3);
           vec3.lerp(ob.center_offset, finger.translate, finger1.translate, 0.5);
-          // TODO: check if this makes sense
           vec3.subtract(ob.center_offset, ob.pos, ob.center_offset);
 
           body.getCollisionShape().calculateLocalInertia(0, bt_inertia);   
@@ -820,10 +854,9 @@ body {
       transform.setOrigin(new Ammo.btVector3(position[0], position[1], position[2]));
       let motionState = new Ammo.btDefaultMotionState(transform);
 
-      let localInertia = new Ammo.btVector3(0, 0, 0);
-      shape.calculateLocalInertia(mass, localInertia);
+      shape.calculateLocalInertia(mass, bt_inertia);
 
-      let info = new Ammo.btRigidBodyConstructionInfo(mass, motionState, shape, localInertia);
+      let info = new Ammo.btRigidBodyConstructionInfo(mass, motionState, shape, bt_inertia);
       let body = new Ammo.btRigidBody(info);
       // if (box.hasOwnProperty("frameid"))
       //   body.setCollisionFlags(body.getCollisionFlags() | CF_KINEMATIC_OBJECT);
@@ -840,27 +873,31 @@ body {
 
     // Internal algorithm assumes box having translate and quat arrays.
     // This makes it.
-    function updateObjectData(box) {
-      box.pos = box.pos || new glMatrix.ARRAY_TYPE(3);
-      box.quat = box.quat || new glMatrix.ARRAY_TYPE(4);
-      let state = box.physics_body.getMotionState();
-      state.getWorldTransform(transform);
-      const t = transform.getOrigin();
-      let q = transform.getRotation();
-      const bt = box.pos;
-      const bq = box.quat;
-      bt[0] = t.x();
-      bt[1] = t.y();
-      bt[2] = t.z();
-      bq[0] = q.x();
-      bq[1] = q.y();
-      bq[2] = q.z();
-      bq[3] = q.w();
+    function updateBoxesData() {
+      for (let i = 1; i < boxes.length; i++) {
+        const box = boxes[i];
+        box.pos = box.pos || new glMatrix.ARRAY_TYPE(3);
+        box.quat = box.quat || new glMatrix.ARRAY_TYPE(4);
+        let state = box.physics_body.getMotionState();
+        state.getWorldTransform(transform);
+        const t = transform.getOrigin();
+        let q = transform.getRotation();
+        const bt = box.pos;
+        const bq = box.quat;
+        bt[0] = t.x();
+        bt[1] = t.y();
+        bt[2] = t.z();
+        bq[0] = q.x();
+        bq[1] = q.y();
+        bq[2] = q.z();
+        bq[3] = q.w();
+      }
+      return true;
     }
 
     function addConnectionsForContacts() {
-
       const disp = physics.getDispatcher();
+      let data_updated_from_physics_world = false;
       for (let i = 0, num = disp.getNumManifolds(); i < num; i++) {
         const manifold = disp.getManifoldByIndexInternal(i);
         const num_contacts = manifold.getNumContacts();
@@ -870,12 +907,16 @@ body {
         const i1 = manifold.getBody1().getUserIndex();
         if(i0 > i1)
           throw "first one should be less than the second";
+        if (i0 >= SPHERES_OFFSET)
+          continue; // let's pick only boxes.
         if (i1 < SPHERES_OFFSET + SPOOL_OFFSET)
           continue;
         if (i1 >= NETSPHERES_OFFSET)
           continue;
         if (!manifold.getBody1().isActive())
           continue;
+        data_updated_from_physics_world =
+            data_updated_from_physics_world || updateBoxesData();
         processManifold(i0, i1, manifold);
       }
       // reset back intermediate data.
@@ -888,36 +929,33 @@ body {
       }
     }
 
+    function btToScene(s) {
+      let state = s.physics_body.getMotionState();
+      if (!state)
+        return;
+      state.getWorldTransform(transform);
+      let t = transform.getOrigin();
+      let q = transform.getRotation();
+      s.object3D.position.set(t.x(), t.y(), t.z());
+      s.object3D.quaternion.set(q.x(), q.y(), q.z(), q.w());
+    }
 
     function updatePhysics(time_delta) {
+      if ((boxes[1].constraints.length & 1) != 0 ||
+          (boxes[2].constraints.length & 1) != 0 ||
+          (boxes[3].constraints.length & 1) != 0)
+        console.error("expected even number of constraints");
       physics.stepSimulation(time_delta, 10);
-      // TODO: rebuild ammmo.js to add tick callback or split this step to
-      // multiple substep stepSimulation to check the contacts and manifolds.
       addConnectionsForContacts();
-      for (let i = 1; i < boxes.length; i++) {
-        let box = boxes[i];
-        let state = box.physics_body.getMotionState();
-        if (!state)
-          continue;
-        state.getWorldTransform(transform);
-        let t = transform.getOrigin();
-        let q = transform.getRotation();
-        box.object3D.position.set(t.x(), t.y(), t.z());
-        box.object3D.quaternion.set(q.x(), q.y(), q.z(), q.w());
-      }
-      for (let i = 0; i < spheres.length; i++) {
-        let s = spheres[i];
-        let state = s.physics_body.getMotionState();
-        if (!state)
-          continue;
-        state.getWorldTransform(transform);
-        // TODO: handle rotation once we have sphere scene objects
-        let t = transform.getOrigin();
-        // box.object3D.position.set(t);
-      }
+
+      for (let i = 1; i < boxes.length; i++)
+        btToScene(boxes[i]);
+      for (let i = 0; i < SPOOL_OFFSET; i++)
+        btToScene(spheres[i]);
     }
 
     const handsView = new THREE.Matrix4();
+    // TODO: check the scale
     handsView.lookAt(new THREE.Vector3(0, 0, -5),   // eye
                      new THREE.Vector3(0, 0, 0),   // target
                      new THREE.Vector3(0, 1, 0));  // up
@@ -1194,9 +1232,6 @@ body {
 
     let depthMesh;
     function recreateDepthMesh() {
-      // Essential to get plane shadows working.
-      scene.renderer.shadowMap.renderReverseSided = false;
-
       let uniformsHands = THREE.UniformsUtils.clone(hands.uniforms);
       
       if (!scene.renderer.context.three_depth_texture) {
@@ -1209,6 +1244,10 @@ body {
 
       // Continue construction when depth video is loaded as then we have video frame size available.
       function depthVideoLoaded() {
+        if (camera.object3D.children.length < 1)
+          return;
+        if (depthMesh)
+          camera.object3D.remove(depthMesh);
 
         function setDepthUniforms(uniforms) {
           uniforms['u_depth_scale'].value = depthseg.depth_scale * viewscale;
@@ -1222,9 +1261,6 @@ body {
             vertexShader: hands.vertexShader, fragmentShader: hands.fragmentShader,
             lights: true, fog: false, side: THREE.DoubleSide});
 
-        if (depthMesh)
-          scene.object3D.remove(depthMesh);
-
         depthMesh = new THREE.Mesh(new THREE.PlaneBufferGeometry(1, 1, depthseg.width, depthseg.height), material);
 
         let uniformsHandsShadow = THREE.UniformsUtils.clone(hands_shadow.uniforms);
@@ -1236,17 +1272,19 @@ body {
           fog: false, side: THREE.DoubleSide, depthPacking: THREE.RGBADepthPacking,
         });
         
-        const posstr = camera.attributes.getNamedItem("position").value.slice(0);
+ /*       const posstr = camera.attributes.getNamedItem("position").value.slice(0);
         const position = JSON.parse("[" + posstr.replace(/ /g, ',') + "]");
         depthMesh.position.y = position[1];
-        depthMesh.position.z = position[2];
-        depthMesh.rotation.set(-0.52, 0, 0); // 30 degrees in radians.
+        depthMesh.position.z = position[2];*/
+        // depthMesh.rotation.set(-0.52, 0, 0);
+        depthMesh.position.y = 0.15; // about 15 centimeters above the HMD.
+        depthMesh.rotation.set(-0.15, 0, 0); // rotate depth camera a bit down.
         depthMesh.scale.x = 1.5; // TODO: calculate.        
         depthMesh.scale.y = 1.5;        
         depthMesh.castShadow = true;
         depthMesh.receiveShadow = true;
         depthMesh.width = depthseg.width;
-        scene.object3D.add(depthMesh);
+        camera.object3D.add(depthMesh);
       }
       depthseg.depthVideoLoadedCallback = depthVideoLoaded;
       if (depthseg.depth_focal_inv)
@@ -1264,7 +1302,7 @@ body {
           var pairCache = new Ammo.btDbvtBroadphase();
           var solver = new Ammo.btSequentialImpulseConstraintSolver();
           physics = new Ammo.btDiscreteDynamicsWorld(dispatcher, pairCache, solver,collisionConfiguration);
-          const gravity = new Ammo.btVector3(0, -9.81, 0);
+          const gravity = new Ammo.btVector3(0, -9.81 / viewscale, 0);
           physics.setGravity(gravity);
           sceneLoaded();
         });
@@ -1298,15 +1336,17 @@ body {
     <a-box src="#webgl" color="#4CC3D9" position="3 0.75 0" scale="1 1 1" mass="5" shadow></a-box>
     <a-box src="#webgl" color="#FFC65D" position="-1 2.75 0" scale="1 1 1" mass="5" shadow></a-box>
     <a-sky color="#ECECEC"></a-sky>
-    <a-camera position="0 5 5" rotation="-30 0 0" user-height="0"></a-camera>
+    <a-entity position="0 5 3" rotation="-45 0 0">
+      <a-camera></a-camera>
+    </a-entity>
     <a-entity light="type: ambient; color: #BBB"></a-entity>
-    <a-entity light="color: #FFF; intensity: 0.6; castShadow: true; shadowBias: -0.0001; shadowCameraTop: 10; shadowCameraRight: 10; shadowCameraBottom: -10; shadowCameraLeft: -10; shadowMapHeight:1024; shadowMapWidth:1024" position="5 10 5"></a-entity>  </a-scene>
+    <a-entity light="color: #FFF; intensity: 0.6; castShadow: true; shadowBias: -0.0001; shadowCameraTop: 10; shadowCameraRight: 10; shadowCameraBottom: -10; shadowCameraLeft: -10; shadowMapHeight:1024; shadowMapWidth:1024" position="10 10 3"></a-entity>  </a-scene>
   <div class="info">
     Hand physics - depth camera capture demo.
     <div>
       <a href="https://github.com/01org/depth-camera-web-demo">Source code on GitHub</a>
     </div>
-      <div id="errormessages" style="color: red; font-size: x-large;"></div>
+    <div id="console" style="color: red; font-size: x-large;"></div>
 
   </div>
 </body>
