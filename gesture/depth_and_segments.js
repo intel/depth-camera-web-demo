@@ -231,12 +231,12 @@ class DepthAndSegments {
     this.depth_coef = this.depth_scale * this.depth_focal_inv[0]; // cache the computed
   }
 
-  setXFlip(value) {
+  setXZFlip(value) {
     const gl = this.gl; 
     gl.useProgram(gl.render_program);
-    gl.uniform1f(gl.render_u_x_flip, value ? 0.0 : 1.0);
+    gl.uniform1f(gl.render_u_xz_flip, value ? 0.0 : 1.0);
     gl.useProgram(gl.compute_program);
-    gl.uniform1f(gl.compute_u_x_flip, value ? 0.0 : 1.0);
+    gl.uniform1f(gl.compute_u_xz_flip, value ? 0.0 : 1.0);
   }
 
   identifyJointsAndFixNoise(segment_data) {
@@ -558,7 +558,7 @@ function initGL(gl, drawGL) {
     uniform vec2 u_depth_size;
     uniform vec2 u_plane;
     uniform float finger_half_width;
-    uniform float x_flip;
+    uniform float xz_flip;
     out float depth;
 
     void main() {
@@ -569,7 +569,7 @@ function initGL(gl, drawGL) {
       vec2 tex_pos = depth_pixel / u_depth_size;
 
       // If camera faces towards user, mirror the display.
-      if (x_flip != 0.0)
+      if (xz_flip != 0.0)
         tex_pos.x = 1.0 - tex_pos.x;
 
       depth = texture(s_depth, tex_pos).r;
@@ -663,8 +663,8 @@ function initGL(gl, drawGL) {
   gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, transform_feedback)
 
   gl.uniform1i(gl.getUniformLocation(compute_program, "s_depth"), gl.depth_tex_unit - gl.TEXTURE0);
-  gl.compute_u_x_flip = gl.getUniformLocation(compute_program, "x_flip");
-  gl.uniform1i(gl.compute_u_x_flip, 0);
+  gl.compute_u_xz_flip = gl.getUniformLocation(compute_program, "xz_flip");
+  gl.uniform1i(gl.compute_u_xz_flip, 0);
 
   // 3D Pointcloud rendering.
   var vertex_shader = gl.createShader(gl.VERTEX_SHADER);
@@ -695,7 +695,7 @@ function initGL(gl, drawGL) {
 
     uniform float u_draw_lighting;
     uniform float u_pointSize;
-    uniform float x_flip;
+    uniform float xz_flip;
 
     uniform sampler2D u_depth_texture;
 
@@ -722,7 +722,7 @@ function initGL(gl, drawGL) {
         depth_pixel.y = clamp(floor(float(gl_VertexID) / u_depth_texture_size.x),
                               0.0, u_depth_texture_size.y) + 0.5;
         vec2 depth_texture_coord = depth_pixel / u_depth_texture_size;
-        if (x_flip != 0.0)
+        if (xz_flip != 0.0)
           depth_texture_coord.x = 1.0 - depth_texture_coord.x;
         // The values of R, G and B should be equal, so we can just
         // select any of them.
@@ -739,7 +739,6 @@ function initGL(gl, drawGL) {
         // the depth.
         vec4 position = depth_deproject(depth_pixel,
                                         depth_scaled);
-
         if (u_draw_lighting != 0.0) {
           // Calculate normal based on surrounding pixels.
           vec2 stepx = vec2(1.0, 0.0) / u_depth_texture_size;
@@ -812,8 +811,8 @@ function initGL(gl, drawGL) {
   gl.render_u_pointSize = gl.getUniformLocation(program, "u_pointSize");
   gl.render_u_light_position = gl.getUniformLocation(program, "u_light_position");
   gl.render_u_shadow_map = gl.getUniformLocation(program, "u_shadow_map");
-  gl.render_u_x_flip = gl.getUniformLocation(program, "x_flip");
-  gl.uniform1i(gl.render_u_x_flip, 0);
+  gl.render_u_xz_flip = gl.getUniformLocation(program, "xz_flip");
+  gl.uniform1i(gl.render_u_xz_flip, 0);
   
   function createDepthTexture(gl) {
     var depth_texture = gl.createTexture();
