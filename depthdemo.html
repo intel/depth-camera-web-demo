@@ -48,6 +48,61 @@
     border: 1px solid #cccccc;
     background-color: white;
   }
+
+  #tabcontainer {
+    margin: 16px 0px;
+  }
+
+  #tabcontainer input {
+    height: 35px;
+    visibility: hidden;
+  }
+
+  #tabcontainer label {
+    color: gray;
+    cursor: pointer;
+    display: block;
+    float: left;
+    height, : 40px;
+    line-height: 40px;
+    margin-right: 5px;
+    padding: 0 20px;
+    text-align: center;
+  }
+  
+  #tabcontainer input:hover + label {
+    background: lightgray;
+    color: gray;
+  }
+
+  #tabcontainer input:checked + label {
+    background: #f0f0f0;
+    color: dimgray;
+    position: relative;
+    z-index: 6;
+  }
+
+  #tabcontent div {
+    background: #f0f0f0;
+    opacity: 0;
+    position: absolute;
+    z-index: -100;
+  }
+
+  #tabcontainer input#tab1:checked ~ #tabcontent #tabcontent1,
+  #tabcontainer input#tab2:checked ~ #tabcontent #tabcontent2 {
+      opacity: 1;
+      z-index: 100;
+  }
+
+  input.visible {
+    visibility: visible !important;
+  }
+   
+  video-stream {
+    color: dimgray;
+  }
+
 </style>
 
 <template id="video-stream">
@@ -57,12 +112,7 @@
       flex-flow: row wrap;
     }
 
-    div {
-      margin-right: 16px;
-    }
-
     canvas {
-      padding: 16px;
       align-self: center;
     }
 
@@ -72,7 +122,6 @@
 
     label {
       display: block;
-      margin: 16px 0px;
     }
   </style>
   <div>
@@ -80,7 +129,7 @@
     <canvas id="canvasGL" width="640" height="480"></canvas>
   </div>
   <div>
-    <label>Depth video frame, after <code>gl.readPixels</code> and processing on CPU:</label>
+    <label><input type="checkbox" onchange="readAndShowPixels(this)"></input>gl.readPixels and show in 2D canvas</label>
     <canvas id="canvas2D" width="640" height="480"></canvas>
   </div>
 </template>
@@ -93,8 +142,21 @@
     <select id="selectVideoDevice"></select>
   </div>
 
-  <video-stream></video-stream>
 
+  <div id="tabcontainer">
+    <input id="tab1" type="radio" name="tabs" checked="checked" />
+    <label for="tab1">Render depth</label>
+    <input id="tab2" type="radio" name="tabs" />
+    <label for="tab2">Sync depth and color</label>
+    <div id="tabcontent">
+      <div id = tabcontent1>
+        <video-stream></video-stream>
+      </div>
+      <div id="tabcontent2">
+        <label>bla2</label>
+      </div>
+    </div>
+  </div>
   <div id="console">
     <!-- Print error messages here. -->
   </div>
@@ -102,7 +164,7 @@
 
 <script src="depth-camera.js"></script>
 <script>
-
+  let readAndShowDepthPixels = false;
   let error = window.console.error;
   window.console.error = (message, ...rest) => {
     let target = document.querySelector('#console');
@@ -113,6 +175,10 @@
     }
 
     target.innerHTML += `${message}<br>`;
+  }
+
+  function readAndShowPixels(element) {
+    readAndShowDepthPixels = element.checked;   
   }
 
   customElements.define('video-stream', class extends HTMLElement {
@@ -179,14 +245,16 @@
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, gl.RGBA, gl.FLOAT, this.video);
         }
 
-        // Read it back to buffer.
-        this._readPixels();
+        if (readAndShowDepthPixels) {
+          // Read it back to buffer.
+          this._readPixels();
 
-        // TODO: process pixels.
-        // Put read and processed pixels to 2D canvas.
-        // Note: This is just one of scenarios for the demo. You can directly
-        // bind video to 2D canvas without using WebGL as intermediate step.
-        this._putReadPixelsTo2DCanvas();
+          // TODO: process pixels.
+          // Put read and processed pixels to 2D canvas.
+          // Note: This is just one of scenarios for the demo. You can directly
+          // bind video to 2D canvas without using WebGL as intermediate step.
+          this._putReadPixelsTo2DCanvas();          
+        }
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
       gl.vertexAttribPointer(gl.vertex_location, 2, gl.FLOAT, false, 0, 0);
