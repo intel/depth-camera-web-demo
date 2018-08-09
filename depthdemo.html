@@ -58,7 +58,7 @@
     visibility: hidden;
   }
 
-  #tabcontainer label {
+  label[for=tab1], label[for=tab2] {
     color: gray;
     cursor: pointer;
     display: block;
@@ -82,7 +82,7 @@
     z-index: 6;
   }
 
-  #tabcontent div {
+  #tabcontent1, #tabcontent2 {
     background: #f0f0f0;
     opacity: 0;
     position: absolute;
@@ -98,9 +98,20 @@
   input.visible {
     visibility: visible !important;
   }
-   
+
+
   video-stream {
     color: dimgray;
+  }
+
+  #synctab {
+    margin: 16px;
+    padding:0px;
+    color: dimgray;
+  }
+
+  label[for=synccanvas] {
+    display:block;    
   }
 
 </style>
@@ -153,7 +164,12 @@
         <video-stream></video-stream>
       </div>
       <div id="tabcontent2">
-        <label>bla2</label>
+        <div id="synctab">
+          <label for="synccanvas">Color stream is displayed over depth that is aligned to color:</label>
+          <canvas id="synccanvas" width="640px" height="480px"
+                  style="background-color: black;">
+          </canvas>
+        </div>
       </div>
     </div>
   </div>
@@ -163,6 +179,7 @@
 </body>
 
 <script src="depth-camera.js"></script>
+<script src="depth-to-color-sync-render.js"></script>
 <script>
   let readAndShowDepthPixels = false;
   let error = window.console.error;

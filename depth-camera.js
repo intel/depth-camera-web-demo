@@ -107,14 +107,12 @@
     }
 
     var potentialDevices = await navigator.mediaDevices.enumerateDevices();
-    const devices = (navigator.appVersion.indexOf("Win") == -1)
-        ? potentialDevices.filter((device) => (device.kind == "videoinput" &&
-            device.label.indexOf("RealSense") !== -1 &&
-            device.deviceId != depth_device_id))
-        : potentialDevices.filter((device) => (device.kind == "videoinput" &&
-            device.label.indexOf("RealSense") !== -1 &&
-            device.label.indexOf("RGB") !== -1 &&
-            device.deviceId != depth_device_id));
+    const devices = all_devices.filter((device) => (
+        device.kind == "videoinput" &&
+        device.label.includes("RealSense") &&
+        device.label.includes("RGB") &&
+        !device.label.includes("Depth") &&
+        device.deviceId != depth_device_id));
 
     if (devices.length < 1) {
       throw new Error("No RealSense camera connected.");
