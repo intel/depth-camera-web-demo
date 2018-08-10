@@ -94,19 +94,19 @@
     // Note: depth_stream is not used, for now, but deliberatelly added as a
     // parameter to mandate the need for previous call to getDepthStream.
 
-    let depthDeviceId = null;
+    let depth_device_id = null;
     const depth = depthStream.getVideoTracks()[0];
 
     // Chrome, starting with version 59, implements getSettings() API.
     if (depth.getSettings) {
-      depthDeviceId = depth.getSettings().deviceId;
+      depth_device_id = depth.getSettings().deviceId;
     } else if (idealWidth) {
       console.warn(`Not able to set ideal width for color video as
         MediaStreamTrack getSettings() API is not available. Try
         with Chromium version > 59.`);
     }
 
-    var potentialDevices = await navigator.mediaDevices.enumerateDevices();
+    var all_devices = await navigator.mediaDevices.enumerateDevices();
     const devices = all_devices.filter((device) => (
         device.kind == "videoinput" &&
         device.label.includes("RealSense") &&

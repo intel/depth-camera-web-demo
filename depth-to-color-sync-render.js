@@ -29,8 +29,6 @@
 
 class DepthToColorSyncRender {
   constructor(canvas) {
-    this.colorVideo = createVideo();
-    this.depthVideo = createVideo();
     let gl;
     try {
         gl = canvas.getContext('webgl2');
@@ -38,10 +36,12 @@ class DepthToColorSyncRender {
         console.error('Your browser doesn\'t support WebGL2.');
         throw new Error(`Could not create WebGL2 context: ${e}`);
     }
-    this.programs = setupPrograms(gl);
-    initAttributes(gl);
+    this.gl = gl;
+    this.programs = this.setupPrograms(gl);
     gl.getExtension('EXT_color_buffer_float');
     gl.getExtension('OES_texture_float_linear');
+    this.PAUSE_REQUESTED = 1;
+    this.PAUSED = 2;
   }
 
   createVideo() {
@@ -58,19 +58,27 @@ class DepthToColorSyncRender {
     return video;
   }
 
-  async setupCamera() {
-  	const depthStream = await DepthCamera.getDepthStream();
-  	const depth = depth_stream.getVideoTracks()[0];
-  	const color_stream =
-  	    await DepthCamera.getColorStreamForDepthStream(depth_stream);
+  async setupCamera(depth_video = null) {
+    if (depth_video)
+      this.depthVideo = depth_video;
+    if (!this.depthVideo)
+      this.depthVideo = this.createVideo();
+    if (!this.colorVideo)
+      this.colorVideo = this.createVideo();
 
-  	this.colorVideo.srcObject = colorStream;
-  	this.depthVideo.srcObject = depthStream;
+    if (!this.depthVideo.srcObject)
+  	  this.depthVideo.srcObject = await DepthCamera.getDepthStream();
+    const depthStream = this.depthVideo.srcObject;
+  	if (!this.colorVideo.srcObject) {
+        const colorStream =
+            await DepthCamera.getColorStreamForDepthStream(depthStream);
+        this.colorVideo.srcObject = colorStream;
+    }
   	return DepthCamera.getCameraCalibration(depthStream);
   }
 
   // Create textures into which the camera output will be stored.
-  function setupTextures(gl, programs, width, height, colorwidth, colorheight) {
+  setupTextures(gl, programs, width, height, colorwidth, colorheight) {
   	let lastTextureId = 0;
   	function createTexture2D(format, w, h) {
   	  gl.activeTexture(gl[`TEXTURE${lastTextureId}`]);
@@ -106,6 +114,7 @@ class DepthToColorSyncRender {
   }
 
   initUniforms(gl, cameraParams, width, height) {
+    const textures = this.textures;
   	const color = textures.color;
   	const intrin = cameraParams.getDepthIntrinsics(width, height);
   	const offsetx = (intrin.offset[0] / width);
@@ -118,7 +127,7 @@ class DepthToColorSyncRender {
   	const colorfocaly = cameraParams.colorFocalLength[1] / color.h;
   	const d2cTexture = textures.d2c;
 
-  	const d2c = programs.d2c;
+  	const d2c = this.programs.d2c;
   	gl.useProgram(d2c);
   	gl.uniform1i(gl.getUniformLocation(d2c, "sDepth"), textures.depth.unit);
   	gl.uniform1i(gl.getUniformLocation(d2c, "s"), textures.color.unit);
@@ -129,14 +138,26 @@ class DepthToColorSyncRender {
   	gl.uniform2f(gl.getUniformLocation(d2c, 'colorOffset'), coloroffsetx, coloroffsety);
   	gl.uniformMatrix4fv(gl.getUniformLocation(d2c, "depthToColor"), false, cameraParams.depthToColor);
 
-  	const render = programs.render;
+  	const render = this.programs.render;
   	gl.useProgram(render);
-  	gl.uniform1i(gl.getUniformLocation(d2c, "d2c"), d2cTexture.unit;
+  	gl.uniform1i(gl.getUniformLocation(d2c, "d2c"), d2cTexture.unit);
     
   }
 
 
   setupPrograms(gl) {
+    this.vao = gl.createVertexArray();
+    gl.bindVertexArray(this.vao);
+    const vertex_buffer = gl.createBuffer();
+    this.vertex_buffer = vertex_buffer;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertex_buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,1,0,1,1,0,1]), gl.STATIC_DRAW);
+
+    this.index_buffer= gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.index_buffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2,0,2,3]), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    
   	// need them and add another pass that would, using depth camera, calculate
   	// 3D position of AR marker square.
   	// first pass would be mapping depth to color for all pixels.
@@ -210,7 +231,7 @@ class DepthToColorSyncRender {
   	    gl_FragColor = tex;
   	  }`;  
 
-  	createProgram = (gl, vs, ps) => {
+  	function createProgram(gl, vs, ps) {
   	  var vertex_shader = gl.createShader(gl.VERTEX_SHADER);
   	  gl.shaderSource(vertex_shader, vs);
   	  gl.compileShader(vertex_shader);
@@ -233,6 +254,8 @@ class DepthToColorSyncRender {
   	  gl.useProgram(program);
 
   	  const vertex_location = gl.getAttribLocation(program, "v");
+      if (vertex_location == -1)
+        return program;
   	  gl.enableVertexAttribArray(vertex_location);
   	  program.vertex_location = vertex_location;
   	  gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
@@ -247,7 +270,7 @@ class DepthToColorSyncRender {
   }
    
   setup(gl, cameraParams, depthW, depthH, colorW, colorH) {
-    createFramebuffer2D = (gl, textureList) => {
+    const createFramebuffer2D = (gl, textureList) => {
       const framebuffer = gl.createFramebuffer();
       const drawBuffers = [];
       gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
@@ -266,33 +289,61 @@ class DepthToColorSyncRender {
       return framebuffer;
     }
 
-  	this.textures = setupTextures(gl, this.programs, width, height, colorW, colorH);
-  	initUniforms(gl, cameraParams, depthW, depthH);
+  	if (!this.textures)
+      this.textures = this.setupTextures(gl, this.programs, depthW, depthH, colorW, colorH);
+  	this.initUniforms(gl, cameraParams, depthW, depthH);
+
+    const textures = this.textures;
   	// init passes with framebuffers
-  	this.passes = [{
-  	  in: textures.depth,
-  	  framebuffer: this.createFramebuffer2D(gl, [textures.d2c]),
-  	  program: this.programs.d2c
-  	}, {
-  	  in: textures.d2c,
-  	  framebuffer: null,
-  	  program: this.programs.render
-  	}];
+  	if (!this.passes) {
+      this.passes = [{
+        in: textures.depth,
+        framebuffer: createFramebuffer2D(gl, [textures.d2c]),
+        program: this.programs.d2c,
+        vertexAttribArray: gl.createVertexArray()
+      }, {
+        in: textures.d2c,
+        framebuffer: null,
+        program: this.programs.render
+      }];
+    }
+    this.initAttributes(gl);
   }
 
   initAttributes(gl) {
-
+    gl.bindVertexArray(this.vao);
+    gl.useProgram(this.programs.render);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
+    gl.vertexAttribPointer(this.programs.render.vertex_location, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.index_buffer);    
   }
 
-  doMain() {
-  	this.cameraParams = await setupCamera();
+  // it is loaded externally.
+  setDepthVideo(video) {
+    this.depthVideo = video;
+  }
 
+  async play() {
+    const cameraParams = await this.setupCamera(this.depthVideo);    
   	let frame = 0;
   	let textures;
   	const colorVideo = this.colorVideo;
   	const depthVideo = this.colorVideo;
   	const programs = this.programs;
   	const renderer = this;
+    const gl = renderer.gl;
+    let width = 0;
+    let height = 0;
+
+    if (this.paused == this.PAUSE_REQUESTED) {
+      // if we get new play before paused is fulfilled, avoid second
+      // requestAnimationFrame issue;
+      this.paused = 0;
+      return;
+    } else if (this.paused == 0) {
+      console.error("DCHECK failed on paused");
+      return;
+    }
 
   	// Run for each frame. Will do nothing if the camera is not ready yet.
   	const animate = function () {
@@ -329,7 +380,7 @@ class DepthToColorSyncRender {
   	        height,
   	        gl.RGBA,
   	        gl.UNSIGNED_BYTE,
-  	        colorStreamElement,
+  	        colorVideo,
   	      );
   	    } catch (e) {
   	      console.error(`Error uploading video to WebGL:
@@ -338,9 +389,9 @@ class DepthToColorSyncRender {
 
   	    let l;
   	    let program;
-        gl.bindVertexArray(gl.vao_markers);  
-  	    for (let i = 0; i < gl.passes.length; ++i) {
-  	      const pass = gl.passes[i];
+        gl.bindVertexArray(renderer.vao);  
+  	    for (let i = 0; i < renderer.passes.length; ++i) {
+  	      const pass = renderer.passes[i];
   	      // comment previous two lines and uncomment following to measure
   	      // latency of rendering only
   	      // { const pass = gl.passes[6];
@@ -348,21 +399,26 @@ class DepthToColorSyncRender {
   	      gl.bindFramebuffer(gl.FRAMEBUFFER, pass.framebuffer);
 
   	      if(pass.points) {
-  	        gl.bindVertexArray(gl.vertexAttribArray);
+  	        gl.bindVertexArray(pass.vertexAttribArray);
   	        gl.drawArrays(gl.POINTS, 0, pass.points);
-  	        gl.bindVertexArray(gl.vao_markers);
+  	        gl.bindVertexArray(renderer.vao);
   	        continue;
   	      }
-  	      gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
-  	      gl.vertexAttribPointer(pass.program.vertex_location, 2, gl.FLOAT, false, 0, 0);
-  	      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.index_buffer);
   	      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);              
   	    }
 
   	    frame += 1;
   	  }
-  	  window.requestAnimationFrame(animate);
+      if (renderer.paused == renderer.PAUSE_REQUESTED) {
+        renderer.paused = renderer.PAUSED;
+        return;
+      }
+     	window.requestAnimationFrame(animate);
   	};
   	animate();
+  }
+
+  pause() {
+    renderer.paused = 2;
   }
 }

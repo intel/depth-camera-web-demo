@@ -155,9 +155,9 @@
 
 
   <div id="tabcontainer">
-    <input id="tab1" type="radio" name="tabs" checked="checked" />
+    <input id="tab1" type="radio" name="tabs" value="basic" checked="checked" data-ontaboff="stopBasicTab" data-ontabon="startBasicTab"/>
     <label for="tab1">Render depth</label>
-    <input id="tab2" type="radio" name="tabs" />
+    <input id="tab2" type="radio" name="tabs" value="sync" data-ontaboff="stopSyncTab" data-ontabon="startSyncTab"/>
     <label for="tab2">Sync depth and color</label>
     <div id="tabcontent">
       <div id = tabcontent1>
@@ -196,6 +196,53 @@
 
   function readAndShowPixels(element) {
     readAndShowDepthPixels = element.checked;   
+  }
+
+
+  let tabs = document.getElementsByName("tabs");
+  let videos = {depth: null, color: null};
+  let syncrender = new DepthToColorSyncRender(document.querySelector("#synccanvas"));
+  let selectedtab = tabs[0];
+  for(let i = 0; i < tabs.length; i++) {
+    tabs[i].onclick = function() {
+      if(this !== selectedtab) {
+        window[selectedtab.dataset.ontaboff](); 
+        selectedtab = this;
+        window[selectedtab.dataset.ontabon](); 
+      }
+    };
+  }
+  
+  function stopVideo(video) {
+    if (video && video.srcObject) {
+      const cs = video.srcObject;
+      for (let track of cs.getTracks()) {
+        track.stop();
+      }
+      video.srcObject = null;
+    }
+  }
+
+  function startBasicTab() {
+    const videoStreamEl = document.querySelector('video-stream');
+    videoStreamEl.play();    
+  }
+
+  function stopBasicTab() {
+    const videoStreamEl = document.querySelector('video-stream');
+    videoStreamEl.pause();
+  }
+
+  async function startSyncTab() {
+    syncrender.setDepthVideo(videos.depth);
+    await syncrender.play();
+    videos.color = syncrender.colorVideo;
+    videos.depth = syncrender.depthVideo;    
+  }
+
+  function stopSyncTab() {
+    syncrender.pause();
+    stopVideo(videos.color);
   }
 
   customElements.define('video-stream', class extends HTMLElement {
@@ -247,7 +294,7 @@
         height: 480
       });
     }
-
+    
     _frameLoop() {
       const gl = this.gl;
 
@@ -278,6 +325,16 @@
 
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.index_buffer);
       gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+      if (!this.paused)
+        window.requestAnimationFrame(this._frameLoop);
+    }
+
+    pause() {
+      this.paused = true;
+    }
+
+    play() {
+      this.paused = false;
       window.requestAnimationFrame(this._frameLoop);
     }
 
@@ -391,11 +448,8 @@
     }
 
     async loadStream(deviceId) {
-      if (window.stream) {
-        for (let track of window.stream.getTracks()) {
-          track.stop();
-        }
-      }
+      stopVideo(videos.depth);
+      stopVideo(videos.color);
 
       // If the item in drop-down list is selected, use it.
       const getUserMedia = () => {
@@ -416,6 +470,7 @@
       try {
         const stream = await getUserMedia();
         this.video.srcObject = stream;
+        videos.depth = this.video;
 
         // Chrome, starting with version 59, implements getSettings() API.
         const track = stream.getVideoTracks()[0];
@@ -463,6 +518,8 @@
         selectEl.value = videoStreamEl.depthDeviceId;
       }
     }
+
+
   }
 
   function onLoad() {
@@ -474,8 +531,14 @@
       const deviceId = event.target.value;
 
       await videoStreamEl.loadStream(deviceId);
+
       const devices = await navigator.mediaDevices.enumerateDevices();
       populateSelectElement(devices);
+      if (selectedtab.value != "basic") {
+        // It is on by default; stop rendering it if not visible.
+        stopBasicTab();
+      }
+      window[selectedtab.dataset.ontabon]();
 
       selectEl.disabled = false;
     };
