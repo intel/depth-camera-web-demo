@@ -206,7 +206,7 @@
           0
         ],
       };
-    } else if (cameraName === "SR300")  {
+    } else if (cameraName === "SR300 Senz3D")  {
       result =  {
         depthScale: 0.0001249866472790017724,
         getDepthIntrinsics: function(width, height) {
@@ -238,6 +238,68 @@
           0.0026113723870366811752,
           0.0029218809213489294052,
           0.066788062453269958496,
+        ],
+        colorDistortionModel: DistortionModel.NONE,
+        colorDistortioncoeffs: [0, 0, 0, 0, 0],
+      };
+    } else if (cameraName === "SR300")  {
+      result =  {
+        depthScale: 0.0001249866472790017724,
+        getDepthIntrinsics: function(width, height) {
+          if (width == 640 && height == 480) {
+            return {
+              offset: [307.147125244141, 245.624420166016],
+              focalLength: [474.499542236328, 474.499420166016],
+            };
+          } else {
+            throwUnsupportedSizeError();
+          }
+        },
+        getColorIntrinsics: function(width, height) {
+          if (width == 640 && height == 480) {
+            return {
+              offset: [305.502166748047, 247.462982177734],
+              focalLength: [618.239440917969, 618.239562988281],
+            };
+          } else if (width == 1280 && height == 720) {
+            return {
+              offset: [618.253234863281, 371.194458007812],
+              focalLength: [927.359130859375, 927.359313964844],
+            };
+          } else if (width == 1920 && height == 1080) {
+            return {
+              offset: [927.3798828125, 556.791687011719],
+              focalLength: [1391.03869628906, 1391.03894042969],
+            };
+          } else {
+            throwUnsupportedSizeError();
+          }
+        },
+        colorOffset: new Float32Array(
+          [305.502166748047, 247.462982177734]
+        ),
+        colorFocalLength: new Float32Array(
+          [618.239440917969, 618.239562988281]
+        ),
+        depthToColor: [
+          0.999992787837982, 0.00344009511172771, -0.00162653462029994, 0,
+          -0.00343602383509278, 0.999990999698639, 0.00249916850589216, 0,
+          0.00163511745631695, -0.00249356147833169, 0.999995589256287, 0,
+          0.0256999991834164, 0.00126673700287938, 0.00358582031913102, 1
+        ],
+        colorToDepth: [
+          0.999992787837982, -0.00343602383509278, 0.00163511745631695, 0,
+          0.00344009511172771, 0.999990999698639, -0.00249356147833169, 0,
+          -0.00162653462029994, 0.00249916850589216, 0.999995589256287, 0,
+          -0.0257013235241175, -0.00134619453456253, -0.00354716833680868, 1
+        ],        
+        depthDistortionModel: DistortionModel.INVERSE_BROWN_CONRADY,
+        depthDistortioncoeffs: [
+          0.126395508646965,
+          0.0701233819127083,
+          0.00355594046413898,
+          0.00548861175775528,
+          0.103697031736374,
         ],
         colorDistortionModel: DistortionModel.NONE,
         colorDistortioncoeffs: [0, 0, 0, 0, 0],

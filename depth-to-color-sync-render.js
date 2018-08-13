@@ -51,7 +51,6 @@ class DepthToColorSyncRender {
     video.crossOrigin = "anonymous";
     video.width = 640;
     video.height = 480;
-    video.init_done = false;
     video.oncanplay = function(){
       video.video_loaded=true;
     };  
@@ -140,8 +139,9 @@ class DepthToColorSyncRender {
 
   	const render = this.programs.render;
   	gl.useProgram(render);
-  	gl.uniform1i(gl.getUniformLocation(d2c, "d2c"), d2cTexture.unit);
-    
+  	gl.uniform1i(gl.getUniformLocation(render, "d2c"), d2cTexture.unit);
+    gl.uniform1i(gl.getUniformLocation(render, "s"), textures.color.unit);
+    gl.uniform1i(gl.getUniformLocation(render, "depth"), textures.depth.unit);    
   }
 
 
@@ -228,7 +228,8 @@ class DepthToColorSyncRender {
 
   	  void main(){
   	    vec4 tex = texture2D(s, t);
-  	    gl_FragColor = tex;
+  	    vec4 pos = texture2D(d2c, t);
+  	    gl_FragColor = (pos.z > 0.3 && pos.z < 0.8) ? tex : vec4(0.0);
   	  }`;  
 
   	function createProgram(gl, vs, ps) {
@@ -300,6 +301,7 @@ class DepthToColorSyncRender {
         in: textures.depth,
         framebuffer: createFramebuffer2D(gl, [textures.d2c]),
         program: this.programs.d2c,
+        points: depthW * depthH,
         vertexAttribArray: gl.createVertexArray()
       }, {
         in: textures.d2c,
@@ -313,14 +315,21 @@ class DepthToColorSyncRender {
   initAttributes(gl) {
     gl.bindVertexArray(this.vao);
     gl.useProgram(this.programs.render);
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.vertex_buffer);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertex_buffer);
     gl.vertexAttribPointer(this.programs.render.vertex_location, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.index_buffer);    
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.index_buffer);    
   }
 
   // it is loaded externally.
   setDepthVideo(video) {
     this.depthVideo = video;
+    if (video.videoWidth > 2) {
+      this.depthVideo.video_loaded = true;
+      return;
+    }
+    video.oncanplay = function() {
+      video.video_loaded=true;
+    }
   }
 
   async play() {
@@ -328,7 +337,7 @@ class DepthToColorSyncRender {
   	let frame = 0;
   	let textures;
   	const colorVideo = this.colorVideo;
-  	const depthVideo = this.colorVideo;
+  	const depthVideo = this.depthVideo;
   	const programs = this.programs;
   	const renderer = this;
     const gl = renderer.gl;
@@ -400,6 +409,7 @@ class DepthToColorSyncRender {
 
   	      if(pass.points) {
   	        gl.bindVertexArray(pass.vertexAttribArray);
+  	        gl.clear(gl.COLOR_BUFFER_BIT);
   	        gl.drawArrays(gl.POINTS, 0, pass.points);
   	        gl.bindVertexArray(renderer.vao);
   	        continue;
@@ -419,6 +429,6 @@ class DepthToColorSyncRender {
   }
 
   pause() {
-    renderer.paused = 2;
+    this.paused = 2;
   }
 }
