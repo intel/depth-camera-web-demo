@@ -41,7 +41,6 @@
   #console {
     color: red;
     font-size: 150%;
-    margin: 16px 0px;
   }
 
   canvas {
@@ -147,13 +146,13 @@
 
 <body onload="onLoad()">
   <h2>Depth Capture Demo</h2>
-
+  <div id="console">
+    <!-- Print error messages here. -->
+  </div>
   <div class="select">
     <label for="selectVideoDevice">Capture device with depth stream</label>
     <select id="selectVideoDevice"></select>
   </div>
-
-
   <div id="tabcontainer">
     <input id="tab1" type="radio" name="tabs" value="basic" checked="checked" data-ontaboff="stopBasicTab" data-ontabon="startBasicTab"/>
     <label for="tab1">Render depth</label>
@@ -172,9 +171,6 @@
         </div>
       </div>
     </div>
-  </div>
-  <div id="console">
-    <!-- Print error messages here. -->
   </div>
 </body>
 
