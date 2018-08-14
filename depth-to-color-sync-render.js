@@ -143,12 +143,14 @@ class DepthToColorSyncRender {
     const noHoles = this.programs.noHoles;
     gl.useProgram(noHoles);
     gl.uniform1i(gl.getUniformLocation(noHoles, "color"), textures.color.unit);
+    gl.uniform1i(gl.getUniformLocation(noHoles, "s"), textures.d2c.unit);
+    gl.uniform2f(gl.getUniformLocation(noHoles, 'dd'), 1 / color.w, 1 / color.h);
+
 
     const render = this.programs.render;
     gl.useProgram(render);
-    gl.uniform1i(gl.getUniformLocation(render, "d2c"), d2cTexture.unit);
+    gl.uniform1i(gl.getUniformLocation(render, "d2c"), textures.noHoles.unit);
     gl.uniform1i(gl.getUniformLocation(render, "s"), textures.color.unit);
-    gl.uniform1i(gl.getUniformLocation(render, "depth"), textures.depth.unit);    
   }
 
 
@@ -243,23 +245,52 @@ class DepthToColorSyncRender {
         fragColor = position;
       }`;
     
-    const noHolesVertex = `
-      attribute vec2 v;
-      varying vec2 t;
+    const noHolesVertex = `#version 300 es
+      in vec2 v;
+      out vec2 t;
 
       void main(){
-        gl_Position = vec4(v.x * 2.0 - 1.0, -v.y * 2.0 + 1.0, 0, 1);
+        gl_Position = vec4(v.x * 2.0 - 1.0, v.y * 2.0 - 1.0, 0, 1);
         t = v;
       }`;
-    const noHolesPixel = `
+    const noHolesPixel = `#version 300 es
       precision mediump float;
       uniform sampler2D s;
       uniform sampler2D color;
-      varying vec2 t;
+      uniform vec2 dd;
+      in vec2 t;
+      out vec4 fragColor;
 
       void main(){
-        vec4 tex = texture2D(s, t);
-        gl_FragColor = tex;
+        vec4 pos = texture(s, t);
+        if (pos.z > 0.0) {
+          fragColor = pos;
+          return;
+        }
+        vec4 col = texture(color, t);
+        vec4 postl = texture(s, t - vec2(dd.x, dd.y));
+        vec4 posbr = texture(s, t + vec2(dd.x, dd.y));
+        vec4 postr = texture(s, t - vec2(-dd.x, dd.y));
+        vec4 posbl = texture(s, t + vec2(-dd.x, dd.y));
+        vec4 post = texture(s, t - vec2(0.0, dd.y));
+        vec4 posb = texture(s, t + vec2(0.0, dd.y));
+        vec4 posl = texture(s, t - vec2(dd.x, 0.0));
+        vec4 posr = texture(s, t + vec2(dd.x, 0.0));
+        vec4 coltl = texture(color, t - vec2(dd.x, dd.y));
+        vec4 colbr = texture(color, t + vec2(dd.x, dd.y));
+        vec4 coltr = texture(color, t - vec2(-dd.x, dd.y));
+        vec4 colbl = texture(color, t + vec2(-dd.x, dd.y));
+        vec4 colt = texture(color, t - vec2(0.0, dd.y));
+        vec4 colb = texture(color, t + vec2(0.0, dd.y));
+        vec4 coll = texture(color, t - vec2(dd.x, 0.0));
+        vec4 colr = texture(color, t + vec2(dd.x, 0.0));
+
+        vec4 z0 = vec4(posl.z, postl.z, post.z, postr.z);
+        vec4 z1 = vec4(posr.z, posbr.z, posb.z, posbl.z);
+        // if (posl.z * posr.z > 0.0 || postl.z * posbr.z > 0.0 || post.z * posb.z > 0.0 || postr.z * posbl.z > 0.0)
+        vec4 nonzero = sign(z1 * z0);
+        float depth = dot(nonzero, mix(z1, z0, 0.5)) / dot(nonzero, nonzero);
+        fragColor = vec4(0.0, 0.0, depth, 1.0);
       }`;
 
     const renderVertex = `
