@@ -146,6 +146,8 @@
     const cameraName = label.includes("R200") ? "R200"
         : (label.includes("Camera S") || label.includes("SR300")) ? "SR300"
         : label.includes("ZR300") ? "ZR300"
+        : label.includes("415") ? "D415"
+        : label.includes("430") ? "D430"
         : label.includes(") 4") ? "generic4"
         : label;
 
@@ -364,6 +366,116 @@
           0.000444319186,
           0
         ],
+      };
+    } else if (cameraName === "D415")  {
+      result =  {
+        depthScale: 0.00100000005,
+        getDepthIntrinsics: function(width, height) {
+          if (width == 640 && height == 480) {
+            return {
+              offset: [315.847442626953, 241.684616088867],
+              focalLength: [643.142272949219, 643.142272949219],
+            };
+          } else if (width == 1280 && height == 720) {
+            return {
+              offset: [633.771179199219, 362.526947021484],
+              focalLength: [964.713439941406, 964.713439941406],
+            };
+          } else {
+            throwUnsupportedSizeError();
+          }
+        },
+        getColorIntrinsics: function(width, height) {
+          if (width == 640 && height == 480) {
+            return {
+              offset: [321.308288574219, 231.349639892578],
+              focalLength: [617.459838867188, 617.65087890625],
+            };
+          } else if (width == 1280 && height == 720) {
+            return {
+              offset: [641.96240234375, 347.024475097656],
+              focalLength: [926.189697265625, 926.476257324219],
+            };
+          } else if (width == 1920 && height == 1080) {
+            return {
+              offset: [962.943664550781, 520.536682128906],
+              focalLength: [1389.28454589844, 1389.71447753906],
+            };
+          } else {
+            throwUnsupportedSizeError();
+          }
+        },
+        colorOffset: new Float32Array(
+          [321.308288574219, 231.349639892578]
+        ),
+        colorFocalLength: new Float32Array(
+          [617.459838867188, 617.65087890625]
+        ),
+        depthToColor: [
+          0.999988317489624, 0.000353455223375931, -0.00482225976884365, 0,
+          -0.000426474376581609, 0.999885141849518, -0.0151494843885303, 0,
+          0.00481635145843029, 0.0151513637974858, 0.999873638153076, 0,
+          0.0150465695187449, -0.0000645012842142023, -0.00031321871210821, 1,
+        ],
+        depthDistortionModel: DistortionModel.NONE,
+        depthDistortioncoeffs: [0, 0, 0, 0, 0],
+        colorDistortionModel: DistortionModel.NONE,
+        colorDistortioncoeffs: [0, 0, 0, 0, 0],
+      };
+    } else if (cameraName === "D430")  {
+      result =  {
+        depthScale: 0.00100000005,
+        getDepthIntrinsics: function(width, height) {
+          if (width == 640 && height == 480) {
+            return {
+              offset: [318.229400634766, 239.944534301758],
+              focalLength: [381.902008056641, 381.902008056641],
+            };
+          } else if (width == 1280 && height == 720) {
+            return {
+              offset: [637.048950195312, 359.907562255859],
+              focalLength: [636.503356933594, 636.503356933594],
+            };
+          } else {
+            throwUnsupportedSizeError();
+          }
+        },
+        getColorIntrinsics: function(width, height) {
+          if (width == 640 && height == 480) {
+            return {
+              offset: [324.276763916016, 233.025253295898],
+              focalLength: [616.862121582031, 617.127319335938],
+            };
+          } else if (width == 1280 && height == 720) {
+            return {
+              offset: [646.415161132812, 349.537872314453],
+              focalLength: [925.293212890625, 925.691040039062],
+            };
+          } else if (width == 1920 && height == 1080) {
+            return {
+              offset: [969.622741699219, 524.306823730469],
+              focalLength: [1387.93981933594, 1388.53649902344],
+            };
+          } else {
+            throwUnsupportedSizeError();
+          }
+        },
+        colorOffset: new Float32Array(
+          [324.276763916016, 233.025253295898]
+        ),
+        colorFocalLength: new Float32Array(
+          [616.862121582031, 617.127319335938]
+        ),
+        depthToColor: [
+          0.999992370605469, 0.000624090549536049, -0.00385748990811408, 0,
+          -0.000635052449069917, 0.999995768070221, -0.00284114643000066, 0,
+          0.00385570037178695, 0.00284357438795269, 0.999988496303558, 0,
+          0.0149379102513194, 0.000216223328607157, 0.000277608894975856, 1,
+        ],
+        depthDistortionModel: DistortionModel.NONE,
+        depthDistortioncoeffs: [0, 0, 0, 0, 0],
+        colorDistortionModel: DistortionModel.NONE,
+        colorDistortioncoeffs: [0, 0, 0, 0, 0],
       };
     } else if (cameraName === "generic4")  {
       result = {
