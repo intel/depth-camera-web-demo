@@ -102,24 +102,24 @@ class DepthToColorSyncRender {
 
     const depth = createTexture2D(gl.R32F, width, height);
     const color = createTexture2D(gl.RGBA8, colorwidth, colorheight);
+    const colorFilter = createTexture2D(gl.RGBA8, colorwidth, colorheight);
     const d2c = createTexture2D(gl.RGBA8, colorwidth, colorheight);
     const noHoles = createTexture2D(gl.RGBA8, colorwidth, colorheight);
-    const reduceBlack = createTexture2D(gl.RGBA8, colorwidth, colorheight);
-    const reduceBlack1 = createTexture2D(gl.RGBA8, colorwidth, colorheight);
-    const reduceBlack2 = createTexture2D(gl.RGBA8, colorwidth, colorheight);
-    const reduceBlack3 = createTexture2D(gl.RGBA8, colorwidth, colorheight);
-    const reduceBlack4 = createTexture2D(gl.RGBA8, colorwidth, colorheight);
+    const reduceBlack = [createTexture2D(gl.RGBA8, colorwidth, colorheight),
+                         createTexture2D(gl.RGBA8, colorwidth, colorheight),
+                         createTexture2D(gl.RGBA8, colorwidth, colorheight),
+                         createTexture2D(gl.RGBA8, colorwidth, colorheight),
+                         createTexture2D(gl.RGBA8, colorwidth, colorheight),
+                         createTexture2D(gl.RGBA8, colorwidth, colorheight)]
+
 
     return {
         depth: depth,
         color: color,
+        colorFilter: colorFilter,
         d2c: d2c,
         noHoles: noHoles,
-        reduceBlack: reduceBlack,
-        reduceBlack1: reduceBlack1,
-        reduceBlack2: reduceBlack2,
-        reduceBlack3: reduceBlack3,        
-        reduceBlack4: reduceBlack4,        
+        reduceBlack: reduceBlack,        
     };
   }
 
@@ -138,10 +138,15 @@ class DepthToColorSyncRender {
     const d2cTexture = textures.d2c;
     const range = [0.3, 0.9];
 
+    const bilateral = this.programs.bilateral;
+    gl.useProgram(bilateral);
+    gl.uniform1i(gl.getUniformLocation(bilateral, "s"), textures.color.unit);
+    gl.uniform2f(gl.getUniformLocation(bilateral, 'dd'), 1 / color.w, 1 / color.h);
+
     const d2c = this.programs.d2c;
     gl.useProgram(d2c);
     gl.uniform1i(gl.getUniformLocation(d2c, "sDepth"), textures.depth.unit);
-    gl.uniform1i(gl.getUniformLocation(d2c, "color"), textures.color.unit);
+    gl.uniform1i(gl.getUniformLocation(d2c, "color"), textures.colorFilter.unit);
     gl.uniform1f(gl.getUniformLocation(d2c, 'depthScale'), cameraParams.depthScale);
     gl.uniform2f(gl.getUniformLocation(d2c, 'depthFocalLengthInv'), focalxinv, focalyinv);
     gl.uniform2f(gl.getUniformLocation(d2c, 'depthOffset'), offsetx, offsety);
@@ -155,7 +160,7 @@ class DepthToColorSyncRender {
 
     const noHoles = this.programs.noHoles;
     gl.useProgram(noHoles);
-    gl.uniform1i(gl.getUniformLocation(noHoles, "color"), textures.color.unit);
+    gl.uniform1i(gl.getUniformLocation(noHoles, "color"), textures.colorFilter.unit);
     gl.uniform1i(gl.getUniformLocation(noHoles, "s"), textures.d2c.unit);
     gl.uniform2f(gl.getUniformLocation(noHoles, 'dd'), 1 / color.w, 1 / color.h);
 
@@ -167,7 +172,8 @@ class DepthToColorSyncRender {
 
     const render = this.programs.render;
     gl.useProgram(render);
-    gl.uniform1i(gl.getUniformLocation(render, "s"), textures.reduceBlack4.unit);
+    const lastReduceBlack = textures.reduceBlack[textures.reduceBlack.length - 1];
+    gl.uniform1i(gl.getUniformLocation(render, "s"), lastReduceBlack.unit);
     gl.uniform2f(gl.getUniformLocation(render, 'range'), range[0], range[1]);    
   }
 
@@ -277,6 +283,56 @@ class DepthToColorSyncRender {
         fragColor = vec4(col.rgb, (position.z > 0.97) ? 0.97 : position.z);
       }`;
     
+    const bilateralVertex = `#version 300 es
+      in vec2 v;
+      out vec2 t;
+
+      void main(){
+        gl_Position = vec4(v.x * 2.0 - 1.0, v.y * 2.0 - 1.0, 0, 1);
+        t = v;
+      }`;
+
+    // Approach https://www.shadertoy.com/view/4dfGDH
+    const bilateralPixel = `#version 300 es
+      precision mediump float;
+      uniform sampler2D s;
+      uniform vec2 dd;
+      in vec2 t;
+      out vec4 fragColor;
+
+      #define SIGMA 10.0
+      #define BSIGMA 0.1
+      #define MSIZE 15
+
+      float normpdf3(vec3 v, float sigma)
+      {
+      	return 0.39894*exp(-0.5*dot(v,v)/(sigma*sigma))/sigma;
+      }
+
+
+      void main()
+      {
+      	vec3 c = texture(s, t).rgb;        
+      	const int kSize = (MSIZE - 1)/2;
+      	const float kernel[MSIZE] = float[MSIZE](0.031225216, 0.033322271, 0.035206333, 0.036826804, 0.038138565, 0.039104044, 0.039695028, 0.039894000, 0.039695028, 0.039104044, 0.038138565, 0.036826804, 0.035206333, 0.033322271, 0.031225216);
+      	vec3 final_colour = vec3(0.0);
+      	float bZ = 0.2506642602897679;
+      	
+      	float Z = 0.0;
+      	vec3 cc;
+      	float factor;
+      	for (int i = -kSize; i <= kSize; ++i) {
+      	  for (int j = -kSize; j <= kSize; ++j) {
+      		cc = texture(s, t + dd * vec2(float(i), float(j))).rgb;
+      		factor = normpdf3(cc - c, BSIGMA) * bZ * kernel[kSize + j] * kernel[kSize + i];
+      		Z += factor;
+      		final_colour += factor * cc;
+      	  }
+      	}
+      	fragColor = vec4(final_colour/Z, 1.0);
+      }`;
+
+    
     const noHolesVertex = `#version 300 es
       in vec2 v;
       out vec2 t;
@@ -344,8 +400,7 @@ class DepthToColorSyncRender {
       in vec2 t;
       out vec4 fragColor;
       const vec4 rgbmask = vec4(1.0, 1.0, 1.0, 0.0);
-      const vec4 similarThreshold = vec4(0.03);
-      
+            
       bool similarColor(vec4 a, vec4 b) {
       	vec3 d = a.rgb - b.rgb;
       	return dot(d, d) < 0.007;
@@ -359,12 +414,12 @@ class DepthToColorSyncRender {
       void main(){
         vec4 c = texture(s, t);
         fragColor = c;
-        if (c.a > range.y) {
+        if (c.a > range.y)
           return;
-        }
+        vec4 similarThreshold = vec4(c.a > 0.0 ? 0.08 : 0.08);
 
-        vec4 dd3 = vec4(dd,dd) * vec4(8.0, 8.0, -8.0, 0.0);
-        vec4 dd4 = vec4(dd,dd) * vec4(11.0, 11.0, -11.0, 0.0);
+        vec4 dd3 = vec4(dd,dd) * vec4(11.0, 11.0, -11.0, 0.0);
+        vec4 dd4 = vec4(dd,dd) * vec4(15.0, 15.0, -15.0, 0.0);
 
         vec4 c1 = normalizeRG(texture(s, t - dd3.rg));
         vec4 c5 = normalizeRG(texture(s, t + dd3.rg));
@@ -405,13 +460,13 @@ class DepthToColorSyncRender {
           vec4 sim1 = vec4(lessThan(max(max(diffr1, diffg1), diffb1), similarThreshold));
           vec4 sim2 = vec4(lessThan(max(max(diffr2, diffg2), diffb2), similarThreshold));
           float background = dot(sim1, background1) + dot(sim2, background2);
-          fragColor.a = (background > 0.0) ? 1.0 : fragColor.a;
+          // fragColor.a = (background > 0.0) ? 1.0 : fragColor.a;
           // TODO: in case that the color is in the middle of background pixels
           // even it is not of the same color, we threat it as background when
           // the depth is 0.
           bool backgroundAround = dot(background1, background1) +
                                    dot(background2, background2) >= 4.0; 
-          fragColor.a = (fragColor.a == 0.0 && backgroundAround) ? 0.996 : fragColor.a;
+          // fragColor.a = (fragColor.a == 0.0 && backgroundAround) ? 0.996 : fragColor.a;
           return;
         }
         // non background border, handle holes.
@@ -475,7 +530,7 @@ class DepthToColorSyncRender {
           gl_FragColor = vec4(1.0);
         if (tex.a < range.x)
           gl_FragColor = vec4(1.0);*/
-
+        // gl_FragColor = tex;
       }`; 
 
     function createProgram(gl, vs, ps) {
@@ -512,9 +567,10 @@ class DepthToColorSyncRender {
 
     return {
       d2c: createProgram(gl, depthToColorVertex, depthToColorPixel),
+      bilateral: createProgram(gl, bilateralVertex, bilateralPixel),
       noHoles: createProgram(gl, noHolesVertex, noHolesPixel),
       reduceBlack: createProgram(gl, reduceBlackVertex, reduceBlackPixel),      
-      render: createProgram(gl, renderVertex, renderPixel)
+      render: createProgram(gl, renderVertex, renderPixel),
     }
   }
    
@@ -546,6 +602,10 @@ class DepthToColorSyncRender {
     // init passes with framebuffers
     if (!this.passes) {
       this.passes = [{
+      	in: textures.color,
+        framebuffer: createFramebuffer2D(gl, [textures.colorFilter]),
+        program: this.programs.bilateral,
+      }, {
         framebuffer: createFramebuffer2D(gl, [textures.d2c]),
         program: this.programs.d2c,
         points: depthW * depthH,
@@ -555,23 +615,27 @@ class DepthToColorSyncRender {
         program: this.programs.noHoles,
       }, {
         in: textures.noHoles,
-        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack]),
+        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[0]]),
         program: this.programs.reduceBlack,
       }, {
-        in: textures.reduceBlack,
-        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack1]),
+        in: textures.reduceBlack[0],
+        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[1]]),
         program: this.programs.reduceBlack,
       }, {
-        in: textures.reduceBlack1,
-        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack2]),
+        in: textures.reduceBlack[1],
+        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[2]]),
         program: this.programs.reduceBlack,
       }, {
-        in: textures.reduceBlack2,
-        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack3]),
+        in: textures.reduceBlack[2],
+        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[3]]),
         program: this.programs.reduceBlack,
       }, {
-        in: textures.reduceBlack3,
-        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack4]),
+        in: textures.reduceBlack[3],
+        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[4]]),
+        program: this.programs.reduceBlack,
+      }, {
+        in: textures.reduceBlack[4],
+        framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[5]]),
         program: this.programs.reduceBlack,
       }, {
         framebuffer: null,
