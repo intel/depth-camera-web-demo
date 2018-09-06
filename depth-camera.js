@@ -528,6 +528,7 @@
     // This also de-normalizes the depth value (it's originally a 16-bit
     // integer normalized into a float between 0 and 1).
     result.depthScale = result.depthScale * 65535;
+    result.cameraName = cameraName;
     return result;
   }
 }
