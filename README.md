@@ -21,17 +21,22 @@
 </tr>
 <tr>
 <td align="center" valign="center">
-<img src="typing_in_the_air/typing_in_the_air.gif" alt="typing_in_the_air.gif is not yet loaded." style="width:580px;"/>
+<img src="backgroundremoval.gif" alt="backgroundremoval.gif is not yet loaded."/>
+<br />
+<p>Simple background removal implemented as flood-fill of background color to similarly colored pixels. Works only with simple backgrounds - e.g. room walls on the demo gif. <a href="https://01org.github.io/depth-camera-web-demo/depthdemo.html">Run the live demo here.</a></p>
+</td>
+<td align="center" valign="center">
+<img src="typing_in_the_air/typing_in_the_air.gif" alt="typing_in_the_air.gif is not yet loaded."/>
 <br />
 <p>Typing in the air tutorial shows how to use depth stream and WebGL transform feedback to do simple gesture recognition. Check the <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/doc/tutorial.html">tutorial text</a> and <a href="https://01org.github.io/depth-camera-web-demo/typing_in_the_air/front_capture_typing.html">run the live demo here.</a></p>
 </td>
+</tr>
+<tr>
 <td align="center" valign="center">
 <img src="https://github.com/01org/depthcamera-pointcloud-web-demo/raw/master/recording.gif" alt="https://github.com/01org/depthcamera-pointcloud-web-demo/raw/master/recording.gif is not yet loaded." style="width:362px;"/>
 <br />
 <p>3D point cloud rendering demo shows how to render and synchronize depth and color video on GPU. <a href="https://01org.github.io/depthcamera-pointcloud-web-demo/">Run the live demo here.</a></p>
 </td>
-</tr>
-<tr>
 <td align="center" valign="center">
 <img src="how_the_demo_looks.gif" alt="how_the_demo_looks.gif is not yet loaded." style="height:400px;width:452px;"/>
 <br />

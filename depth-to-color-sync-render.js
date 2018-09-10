@@ -70,6 +70,12 @@ class DepthToColorSyncRender {
     if (!this.depthVideo.srcObject)
       this.depthVideo.srcObject = await DepthCamera.getDepthStream();
     const depthStream = this.depthVideo.srcObject;
+
+    // Supported only for D415 and d430 cameras
+    let track = depthStream.getVideoTracks()[0];
+    if (track.label.indexOf("430") == -1 && track.label.indexOf("415") == -1) {
+      throw new Error('Background removal is supported only for Intel\u00ae RealSense\u2122 D400-Series Depth Cameras.');
+    }
     if (!this.colorVideo.srcObject) {
         const colorStream =
             await DepthCamera.getColorStreamForDepthStream(depthStream);
@@ -204,34 +210,6 @@ class DepthToColorSyncRender {
         return vec4(position2d * z, z, 1.0);
       }
 
-      // Bilateral filter approach from https://www.shadertoy.com/view/4dfGDH
-      float normpdf3(vec3 v, float sigma) {
-        return 0.39894*exp(-0.5*dot(v,v)/(sigma*sigma))/sigma;
-      }
-      vec4 textureB(sampler2D s, vec2 t) {
-        #define BSIGMA 0.1
-        #define MSIZE 15
-        const float Epsilon = 1e-10;
-        vec3 c = texture(s, t).rgb;
-        const int kSize = (MSIZE - 1) / 2;
-        const float kernel[MSIZE] = float[MSIZE](0.031225216, 0.033322271, 0.035206333, 0.036826804, 0.038138565, 0.039104044, 0.039695028, 0.039894000, 0.039695028, 0.039104044, 0.038138565, 0.036826804, 0.035206333, 0.033322271, 0.031225216);
-        vec3 finalColor = vec3(0.0);
-        float bZ = 0.2506642602897679;
-        float Z = 0.0;
-        
-        vec3 cc;
-        float factor;
-        for (int i = -kSize; i <= kSize; ++i) {
-          for (int j = -kSize; j <= kSize; ++j) {
-            cc = texture(s, t + dd.rg * vec2(float(i), float(j))).rgb;
-            factor = normpdf3(cc - c, BSIGMA) * bZ * kernel[kSize + j] * kernel[kSize + i];
-            Z += factor;
-            finalColor += factor * cc;
-          }
-        }
-        return vec4(finalColor/Z, 1.0);
-      }
-
       float nonZeroDepth(sampler2D s, vec2 v) {
         // If the depth is 0, return 1.0. We return 1.0 only because it is max
         // value and we use it to find minimum among neighbour values.
@@ -252,12 +230,6 @@ class DepthToColorSyncRender {
                                  nonZeroDepth(sDepth, v - ddDepth.rb)),
                              min(texture(sDepth, v + ddDepth.bg).r,
                                  nonZeroDepth(sDepth, v - ddDepth.bg)));
-
-/*        vec4 up = 
-        vec4 down = 
-        vec4 left = 
-        vec4 right = 
-*/
         z = (z == 1.0) ? 0.0 : z;
         z *= depthScale;
         z_around *= depthScale;
@@ -270,8 +242,9 @@ class DepthToColorSyncRender {
         backColor = z > range ? vec4(fragColor.rgb, z) : backColor;
         backgroundColor = backColor;
 
-        float z1 = texture(sPreviousDepth, v).r;
-        z1 = (z1 == 1.0) ? 0.0 : z1;
+        // TODO: use previous depth frame to get depth value if not defined
+        // float z1 = texture(sPreviousDepth, v).r;
+        // z1 = (z1 == 1.0) ? 0.0 : z1;
         // z = (z == 0.0) ? z1 * depthScale : z;
         
         // clamp up to 0.95 for expressing value using color alpha channel.
@@ -279,11 +252,14 @@ class DepthToColorSyncRender {
         // camera and [0.95-1] computed background based on color fill.
         z = (z > 0.95) ? 0.95 : z;
         
+        // TODO: use background map to fix edges.
+        /*
         vec4 distN = normalizeRG(fragColor) - normalizeRG(backColor);
         vec4 dist = fragColor - backColor;
-        // z = (z == 0.0 && dot(distN.rgb, distN.rgb) < 0.003 &&
-        //    dot(dist.rgb, dist.rgb) < 0.008 && backColor.a > 0.9) ? backColor.a : z;
+        z = (z == 0.0 && dot(distN.rgb, distN.rgb) < 0.003 &&
+            dot(dist.rgb, dist.rgb) < 0.008 && backColor.a > 0.9) ? backColor.a : z;
         z = (z > 0.95) ? 0.95 : z;
+        */
         fragColor.a = z;
       }`;
 
@@ -775,7 +751,9 @@ class DepthToColorSyncRender {
   }
 
   async play() {
-    const cameraParams = await this.setupCamera(this.depthVideo);    
+    const cameraParams = await this.setupCamera(this.depthVideo).catch((error) => {
+      console.error(error);
+    });    
     let frame = 0;
     let textures;
     const colorVideo = this.colorVideo;
