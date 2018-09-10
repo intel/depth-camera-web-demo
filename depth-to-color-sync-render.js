@@ -48,11 +48,11 @@ class DepthToColorSyncRender {
 
   createVideo() {
     var video = document.createElement("video");
-    video.autoplay = true;
-    video.loop = true;
     video.crossOrigin = "anonymous";
     video.width = 640;
     video.height = 480;
+    video.autoplay = true;
+    video.loop = true;
     video.oncanplay = function(){
       video.video_loaded=true;
     };  
@@ -76,6 +76,23 @@ class DepthToColorSyncRender {
         this.colorVideo.srcObject = colorStream;
     }
     return DepthCamera.getCameraCalibration(depthStream);
+  }
+
+  showBackgroundColor(on) {
+    this.backgroundColor = on;
+  }
+
+  showBackgroundVideo(on) {
+    this.backgroundVideo = on;
+    if (!this.backgroundVideoElement) {
+      const video = this.createVideo();
+      this.backgroundVideoElement = video;
+      video.src = "res/landscape.mp4";
+    }
+    if (on)
+      this.backgroundVideoElement.play();
+    else
+      this.backgroundVideoElement.pause();
   }
 
   // Create textures into which the camera output will be stored.
@@ -117,6 +134,7 @@ class DepthToColorSyncRender {
     const background = createTexture2D(gl.RGBA8, colorwidth, colorheight);
     const previousBackground = createTexture2D(gl.RGBA8, colorwidth, colorheight);
     const cleanup = createTexture2D(gl.RGBA8, colorwidth, colorheight);
+    const backgroundVideo = createTexture2D(gl.RGBA8, 1920, 1080, gl.LINEAR);
 
     return {
         depth: depth0,
@@ -127,7 +145,8 @@ class DepthToColorSyncRender {
         reduceBlack: reduceBlack,
         background: background,
         previousBackground: previousBackground,
-        cleanup: cleanup
+        cleanup: cleanup,
+        backgroundVideo: backgroundVideo
     };
   }
 
@@ -163,7 +182,7 @@ class DepthToColorSyncRender {
       uniform sampler2D sPreviousDepth;
       uniform sampler2D sColor;
       uniform sampler2D sPreviousBackground;
-      uniform vec2 dd;
+      uniform vec3 dd; // vec3(1/w, 1/h, 0)
       uniform vec3 ddDepth; // vec3(1/w, 1/h, 0)
       uniform float depthScale;
       uniform vec2 depthOffset;
@@ -204,13 +223,20 @@ class DepthToColorSyncRender {
         float factor;
         for (int i = -kSize; i <= kSize; ++i) {
           for (int j = -kSize; j <= kSize; ++j) {
-            cc = texture(s, t + dd * vec2(float(i), float(j))).rgb;
+            cc = texture(s, t + dd.rg * vec2(float(i), float(j))).rgb;
             factor = normpdf3(cc - c, BSIGMA) * bZ * kernel[kSize + j] * kernel[kSize + i];
             Z += factor;
             finalColor += factor * cc;
           }
         }
         return vec4(finalColor/Z, 1.0);
+      }
+
+      float nonZeroDepth(sampler2D s, vec2 v) {
+        // If the depth is 0, return 1.0. We return 1.0 only because it is max
+        // value and we use it to find minimum among neighbour values.
+        vec4 c = texture(s, v);
+        return (c.r == 0.0) ? 1.0 : c.r;
       }
 
       void main(){
@@ -221,15 +247,25 @@ class DepthToColorSyncRender {
         vec4 depthPos = colorToDepth * colorPos;
         vec2 position2d = depthPos.xy / depthPos.z;
         vec2 v = position2d * depthFocalLength + depthOffset;
-        // float z = texture(sDepth, v).r;
-        float z = min(min(texture(sDepth, v).r,
-                          min(texture(sDepth, v + ddDepth.rb).r,
-                              texture(sDepth, v - ddDepth.rb).r)),
-                      min(texture(sDepth, v + ddDepth.bg).r,
-                          texture(sDepth, v - ddDepth.bg).r));
+        float z = texture(sDepth, v).r;
+        float z_around = min(min(nonZeroDepth(sDepth, v + ddDepth.rb),
+                                 nonZeroDepth(sDepth, v - ddDepth.rb)),
+                             min(texture(sDepth, v + ddDepth.bg).r,
+                                 nonZeroDepth(sDepth, v - ddDepth.bg)));
 
+/*        vec4 up = 
+        vec4 down = 
+        vec4 left = 
+        vec4 right = 
+*/
         z = (z == 1.0) ? 0.0 : z;
         z *= depthScale;
+        z_around *= depthScale;
+        // As depth and color are not sampled in the same time, prevent overlap
+        // during (moderate) movement. Overlap would render foreground to be
+        // transparent for a frame and we mitigate it by checking pixels around.
+        // z = min(z, z_around);
+        z = z_around < z ? z_around : z;
 
         backColor = z > range ? vec4(fragColor.rgb, z) : backColor;
         backgroundColor = backColor;
@@ -274,7 +310,8 @@ class DepthToColorSyncRender {
         if (c.a > 0.9)
           return;
 
-        const vec4 similarThreshold = vec4(0.023);
+        const vec4 similarThreshold = vec4(0.015);
+        const float k = similarThreshold.r / 0.035;
 
         vec4 dd3 = samplingStep;
         vec4 dd4 = dd3 * 1.414213562;
@@ -332,7 +369,7 @@ class DepthToColorSyncRender {
         vec4 rn = vec4(c.r);
         vec4 gn = vec4(c.g);
         vec4 bn = vec4(c.b);
-
+        
         // Use naive RGB diff for first prototype to evaluate similar colors.
         vec4 r01 = vec4(c01.r, c02.r, c03.r, c04.r);
         vec4 r02 = vec4(c05.r, c06.r, c07.r, c08.r);
@@ -340,12 +377,12 @@ class DepthToColorSyncRender {
         vec4 g02 = vec4(c05.g, c06.g, c07.g, c08.g);
         vec4 b01 = vec4(c01.b, c02.b, c03.b, c04.b);
         vec4 b02 = vec4(c05.b, c06.b, c07.b, c08.b);
-        vec4 diffr1 = abs(r01 - rn);
-        vec4 diffr2 = abs(r02 - rn);
-        vec4 diffg1 = abs(g01 - gn);
-        vec4 diffg2 = abs(g02 - gn);
-        vec4 diffb1 = abs(b01 - bn);
-        vec4 diffb2 = abs(b02 - bn);
+        vec4 diffr1 = abs(r01 - rn - g01 + gn);
+        vec4 diffr2 = abs(r02 - rn - g02 + gn);
+        vec4 diffg1 = max(abs(g01 - gn - b01 + bn), abs(r01 - rn) * k);
+        vec4 diffg2 = max(abs(g02 - gn - b02 + bn), abs(r02 - rn) * k);
+        vec4 diffb1 = max(abs(b01 - bn), abs(g01 - gn)) * k;
+        vec4 diffb2 = max(abs(b02 - bn), abs(g02 - gn)) * k;
         vec4 sim01 = vec4(lessThan(max(max(diffr1, diffg1), diffb1), similarThreshold));
         vec4 sim02 = vec4(lessThan(max(max(diffr2, diffg2), diffb2), similarThreshold));
 
@@ -355,12 +392,12 @@ class DepthToColorSyncRender {
         vec4 g12 = vec4(c15.g, c16.g, c17.g, c18.g);
         vec4 b11 = vec4(c11.b, c12.b, c13.b, c14.b);
         vec4 b12 = vec4(c15.b, c16.b, c17.b, c18.b);
-        diffr1 = abs(r11 - rn);
-        diffr2 = abs(r12 - rn);
-        diffg1 = abs(g11 - gn);
-        diffg2 = abs(g12 - gn);
-        diffb1 = abs(b11 - bn);
-        diffb2 = abs(b12 - bn);
+        diffr1 = abs(r11 - rn - g11 + gn);
+        diffr2 = abs(r12 - rn - g12 + gn);
+        diffg1 = max(abs(g11 - gn - b11 + bn), abs(r11 - rn) * k);
+        diffg2 = max(abs(g12 - gn - b12 + bn), abs(r12 - rn) * k);
+        diffb1 = max(abs(b11 - bn), abs(g11 - gn)) * k;
+        diffb2 = max(abs(b12 - bn), abs(g12 - gn)) * k;
         vec4 sim11 = vec4(lessThan(max(max(diffr1, diffg1), diffb1), similarThreshold));
         vec4 sim12 = vec4(lessThan(max(max(diffr2, diffg2), diffb2), similarThreshold));
 
@@ -370,15 +407,14 @@ class DepthToColorSyncRender {
         vec4 g22 = vec4(c25.g, c26.g, c27.g, c28.g);
         vec4 b21 = vec4(c21.b, c22.b, c23.b, c24.b);
         vec4 b22 = vec4(c25.b, c26.b, c27.b, c28.b);
-        diffr1 = abs(r21 - rn);
-        diffr2 = abs(r22 - rn);
-        diffg1 = abs(g21 - gn);
-        diffg2 = abs(g22 - gn);
-        diffb1 = abs(b21 - bn);
-        diffb2 = abs(b22 - bn);
+        diffr1 = abs(r21 - rn - g21 + gn);
+        diffr2 = abs(r22 - rn - g22 + gn);
+        diffg1 = max(abs(g21 - gn - b21 + bn), abs(r21 - rn) * k);
+        diffg2 = max(abs(g22 - gn - b22 + bn), abs(r22 - rn) * k);
+        diffb1 = max(abs(b21 - bn), abs(g21 - gn)) * k;
+        diffb2 = max(abs(b22 - bn), abs(g22 - gn)) * k;
         vec4 sim21 = vec4(lessThan(max(max(diffr1, diffg1), diffb1), similarThreshold));
         vec4 sim22 = vec4(lessThan(max(max(diffr2, diffg2), diffb2), similarThreshold));
-
 /*
         // Background or zero with different color.
         vec4 foreground11 = vec4(1.0) - background11;
@@ -437,21 +473,7 @@ class DepthToColorSyncRender {
           ch = (ch + vec3(rf, gf, bf)) / count1;
           fragColor = vec4(ch, count1 > coef ? 0.9804 : 1.0);
           return;
-        }
-
-        // Special case: background or background followed by zero from left to 
-        // right with two zeros or background to the right is background.
-        // If the two to the right, below or above are foregrounds, don't expand
-        // it.
-        vec4 w = vec4(z01.a, z11.a, z12.g, z11.g);
-        w = vec4(greaterThan(w, bckgndThreshold)) + vec4(equal(w, vec4(0.0)));
-
-       /* if (handleLeftBlackBorder == 1 && c.a == 0.0 && all(equal(w, vec4(1.0)))
-            && (background12.a == 1.0 ||
-                (background22.a == 1.0 && z12.a == 0.0))) {
-          fragColor.a = 0.9804;
-          return;          
-        }*/        
+        }    
       }`;
     
     const cleanupVertex = `#version 300 es
@@ -465,26 +487,29 @@ class DepthToColorSyncRender {
     const cleanupPixel = `#version 300 es
       precision mediump float;
       uniform sampler2D s;
-      uniform vec4 samplingStep;
+      uniform vec4 dd;
       uniform vec4 mappedRectangle;
 
       in vec2 t;
       out vec4 fragColor;
-      const vec4 rgbmask = vec4(1.0, 1.0, 1.0, 0.0);
-      const float range = 0.9;
-            
-      bool similarColor(vec4 a, vec4 b) {
-        vec3 d = a.rgb - b.rgb;
-        return dot(d, d) < 0.007;
-      }
-      
-      vec4 normalizeRG(vec4 c) {
-        float sum = 1.0; // dot(c, rgbmask);
-        return vec4(c.rg / sum, c.ba);
-      } 
+      const vec4 range = vec4(0.9);
 
       void main(){
         vec4 c = texture(s, t);
+        vec4 d1 = vec4(texture(s, t + dd.ra).a,
+                       texture(s, t + dd.rg).a,
+                       texture(s, t + dd.ag).a,
+                       texture(s, t + dd.bg).a);
+        vec4 d2 = vec4(texture(s, t - dd.ra).a,
+                       texture(s, t - dd.rg).a,
+                       texture(s, t - dd.ag).a,
+                       texture(s, t - dd.bg).a);
+        d1 = vec4(lessThan(d1, range));
+        d2 = vec4(lessThan(d2, range));
+        float count = dot(d1, d1) + dot(d2, d2);
+        c.a = (c.a < range.x) ? (count <= 3.0 ? 0.01 : count <= 6.0 ? 0.03 : c.a) :
+              (c.a > range.x && count >= 5.0) ? 0.5 : c.a;
+
         float a = t.x < mappedRectangle.x ? 1.0 : c.a;
         fragColor = vec4(c.rgb, a);
       }`;
@@ -501,56 +526,44 @@ class DepthToColorSyncRender {
       precision mediump float;
       uniform sampler2D s;
       uniform sampler2D sBackground;
+      uniform float backgroundMode;
+      uniform sampler2D backgroundVideo;
+      uniform vec2 backgroundVideoScale;      
       varying vec2 t;
-      const vec4 rgbmask = vec4(1.0, 1.0, 1.0, 0.0);
-      const vec2 range = vec2(0.1, 0.9);            
-      vec4 normalizeRG(vec4 c) {
-        float sum = dot(c, rgbmask);
-        return vec4(c.rgb / sum, c.a);
-      } 
 
-      const float Epsilon = 1e-10;
-      vec3 RGBtoHCV(vec3 RGB)
-      {
-        // Based on work by Sam Hocevar and Emil Persson
-        vec4 P = (RGB.g < RGB.b) ? vec4(RGB.bg, -1.0, 2.0/3.0) : vec4(RGB.gb, 0.0, -1.0/3.0);
-        vec4 Q = (RGB.r < P.x) ? vec4(P.xyw, RGB.r) : vec4(RGB.r, P.yzx);
-        float C = Q.x - min(Q.w, Q.y);
-        float H = abs((Q.w - Q.y) / (6.0 * C + Epsilon) + Q.z);
-        return vec3(H, C, Q.x);
-      }
- 
+      const vec4 rgbmask = vec4(1.0, 1.0, 1.0, 0.0);
+      const float range = 0.9;            
+
       void main(){
         vec4 tex = texture2D(s, t);
-        vec4 background = texture2D(sBackground, t);
-        gl_FragColor = (tex.a > range.x && tex.a < range.y) ? tex : vec4(0.0);
-        if (tex.a == 1.0) {
-          gl_FragColor = vec4(1.0, 0.6, 0.1, 1.0);
-        } else if (tex.a > 0.99) 
-          gl_FragColor = vec4(1.0, 0.5, 0.5, 1.0);
-        else if (tex.a > 0.9803) 
-          gl_FragColor = vec4(0.3, 0.8, 1.0, 1.0);
-        else if (tex.a > 0.972) 
-          gl_FragColor = vec4(0.5, 0.5, 0.7, 1.0);
-        // else if (tex.a > 0.951) 
-        //   gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
-        else if (tex.a == 0.0) 
-           gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0);
-        else if (tex.a > range.y) 
-          gl_FragColor = vec4(0.0, 1.0, 1.0, 1.0);
-        else if (tex.a < range.x) 
-           gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
-/*        else if (tex.a >= 0.399 && tex.a <= 0.401) 
-          gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-        if (tex.a > range.y)
-          gl_FragColor = vec4(1.0);
-        if (tex.a < range.x)
-          gl_FragColor = vec4(1.0);*/
-        // gl_FragColor = vec4(tex.rgb, 1.0);
-        // gl_FragColor = tex.a < range.y ? vec4(tex.rgb, 1.0) : vec4(0.0, 1.0, 1.0, 1.0);
+        vec2 bs = t * backgroundVideoScale + (vec2(1.0) - backgroundVideoScale) * 0.5;
+        vec4 video = texture2D(backgroundVideo, bs);
 
-        // gl_FragColor = background; 
-        // gl_FragColor = normalizeRG(background);
+        gl_FragColor = (tex.a < range) ? tex : vec4(0.0);
+        float alpha = tex.a > 0.0 ? tex.a < 0.02 ? 0.0 : (tex.a < 0.04 ? 0.3 : 1.0) : 1.0;
+        vec4 background = vec4(0.0);
+        if (tex.a == 1.0) {
+          background = vec4(1.0, 0.6, 0.1, 1.0);;
+        } else if (tex.a > 0.99) 
+          background = vec4(1.0, 0.5, 0.5, 1.0);
+        else if (tex.a > 0.9803) 
+          background = vec4(0.3, 0.8, 1.0, 1.0);
+        else if (tex.a > 0.972) 
+          background = vec4(0.5, 0.5, 0.7, 1.0);
+        else if (tex.a == 0.0) 
+           background = vec4(1.0, 1.0, 0.0, 1.0);
+        else if (tex.a > range) 
+          background = vec4(0.0, 1.0, 1.0, 1.0);
+        
+        background = vec4(0.0, 1.0, 1.0, 1.0);
+        background = backgroundMode == 2.0 ? video : background;
+        alpha = backgroundMode == 0.0 ? 1.0 : tex.a > range ? 0.0 : alpha;
+        gl_FragColor = mix(background, vec4(tex.rgb, 1.0), alpha);
+
+
+
+//        gl_FragColor = backgroundMode == 0.0 ? vec4(tex.rgb, 1.0) :
+//                       tex.a < range ? vec4(tex.rgb, 1.0) : background;
       }`; 
 
     function createProgram(gl, vs, ps) {
@@ -717,8 +730,8 @@ class DepthToColorSyncRender {
     noHoles.sColor = gl.getUniformLocation(noHoles, "sColor");
     noHoles.sPreviousBackground = gl.getUniformLocation(noHoles, "sPreviousBackground");
 
-    gl.uniform3f(gl.getUniformLocation(noHoles, 'ddDepth'), 1 / width, 1 / height, 0);
-    gl.uniform2f(gl.getUniformLocation(noHoles, 'dd'), 1 / color.w, 1 / color.h);
+    gl.uniform3f(gl.getUniformLocation(noHoles, 'ddDepth'), 5 / width, 5 / height, 0);
+    gl.uniform3f(gl.getUniformLocation(noHoles, 'dd'), 1 / color.w, 1 / color.h, 0);
     gl.uniform1f(gl.getUniformLocation(noHoles, 'depthScale'), scale);
     gl.uniform2f(gl.getUniformLocation(noHoles, 'depthFocalLength'), focalx, focaly);
     gl.uniform2f(gl.getUniformLocation(noHoles, 'depthOffset'), offsetx, offsety);
@@ -736,13 +749,16 @@ class DepthToColorSyncRender {
     gl.useProgram(cleanup);
     const lastReduceBlack = textures.reduceBlack[REDUCE_BLACK_PASSES - 1/*textures.reduceBlack.length - 1*/];
     gl.uniform1i(gl.getUniformLocation(cleanup, "s"), lastReduceBlack.unit);
-    cleanup.samplingStep = gl.getUniformLocation(cleanup, "samplingStep");
     gl.uniform4f(gl.getUniformLocation(cleanup, 'mappedRectangle'), cameraParams.cameraName == "D415" ? 0.08 : 0, 0, 1, 1);
+    gl.uniform4f(gl.getUniformLocation(cleanup, 'dd'), 1 / color.w, 1 / color.h, -1 / color.w, 0);
 
     const render = this.programs.render;
     gl.useProgram(render);
-    gl.uniform1i(gl.getUniformLocation(render, "s"), textures.cleanup.unit); 
-
+    gl.uniform1i(gl.getUniformLocation(render, "s"), textures.cleanup.unit);
+    gl.uniform1i(gl.getUniformLocation(render, "backgroundVideo"), textures.backgroundVideo.unit);
+    gl.uniform2f(gl.getUniformLocation(render, "backgroundVideoScale"), 
+        (textures.backgroundVideo.h / color.h) / (textures.backgroundVideo.w / color.w) , 1.0);
+    render.backgroundMode = gl.getUniformLocation(render, "backgroundMode");    
     render.sBackground = gl.getUniformLocation(render, "sBackground");
   }
 
@@ -771,6 +787,8 @@ class DepthToColorSyncRender {
     let height = 0;
     let currentDepthTime = 0;
     let currentColorTime = 0;
+    let currentBackgroundVideoTime = 0;
+    let this_ = this;
 
     if (this.paused == this.PAUSE_REQUESTED) {
       // if we get new play before paused is fulfilled, avoid second
@@ -838,6 +856,23 @@ class DepthToColorSyncRender {
               colorVideo,
             );
           }
+          const back = this_.backgroundVideoElement;
+          if (this_.backgroundVideo && currentBackgroundVideoTime != back.currentTime) {
+            currentBackgroundVideoTime = back.currentTime;
+            gl.activeTexture(gl[`TEXTURE${textures.backgroundVideo.unit}`]);
+            gl.bindTexture(gl.TEXTURE_2D, textures.backgroundVideo);
+            gl.texSubImage2D(
+              gl.TEXTURE_2D,
+              0, // mip-map level
+              0, // x-offset
+              0, // y-offset
+              back.videoWidth,
+              back.videoHeight,
+              gl.RGBA,
+              gl.UNSIGNED_BYTE,
+              back,
+            );            
+          }
         } catch (e) {
           console.error(`Error uploading video to WebGL:
                         ${e.name}, ${e.message}`);
@@ -868,7 +903,11 @@ class DepthToColorSyncRender {
           if (pass.program.sBackground)
              gl.uniform1i(pass.program.sBackground, textures.background.unit);
           if (pass.program.handleLeftBlackBorder)
-             gl.uniform1i(pass.program.handleLeftBlackBorder, pass.handleLeftBlackBorder);           
+             gl.uniform1i(pass.program.handleLeftBlackBorder, pass.handleLeftBlackBorder);
+          if (pass.program.backgroundMode) {
+             gl.uniform1f(pass.program.backgroundMode, this_.backgroundColor ?
+                          1 : this_.backgroundVideo ? 2 : 0);
+          }
 
           gl.bindFramebuffer(gl.FRAMEBUFFER, pass.framebuffer);
           gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);              

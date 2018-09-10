@@ -113,6 +113,29 @@
     display:block;    
   }
 
+  #show-background-video {
+    position: absolute;
+    bottom: 50px;
+    right: 25px;
+    color: gray;
+    z-index: 5;
+    height: 20px;
+    text-align: right;
+  }
+  #show-background-color {
+    position: absolute;
+    bottom: 30px;
+    right: 25px;
+    color: gray;
+    z-index: 5;
+    height: 20px;
+    text-align: right;
+  }
+  #show-video-toggle, #show-color-toggle {
+    visibility: visible !important;
+    height: 15px !important;
+    vertical-align:middle;
+  }
 </style>
 
 <template id="video-stream">
@@ -165,6 +188,10 @@
       <div id="tabcontent2">
         <div id="synctab">
           <label for="synccanvas">Color stream is displayed over depth that is aligned to color:</label>
+          <div id="show-background-video">background video <input id="show-video-toggle" type="checkbox">
+          </div>
+          <div id="show-background-color">background color <input id="show-color-toggle" type="checkbox">
+          </div>
           <canvas id="synccanvas" width="640px" height="480px"
                   style="background-color: black;">
           </canvas>
@@ -240,6 +267,22 @@
     syncrender.pause();
     stopVideo(videos.color);
   }
+
+  const videoToggle = document.getElementById("show-video-toggle");
+  const colorToggle = document.getElementById("show-color-toggle");
+
+  videoToggle.addEventListener("change", function() {
+    if (this.checked)
+      colorToggle.checked = false;
+    syncrender.showBackgroundColor(false);
+    syncrender.showBackgroundVideo(this.checked);
+  });
+  colorToggle.addEventListener("change", function() {
+    if (this.checked)
+      videoToggle.checked = false;
+    syncrender.showBackgroundVideo(false);
+    syncrender.showBackgroundColor(this.checked);
+  });
 
   customElements.define('video-stream', class extends HTMLElement {
     constructor() {
