@@ -391,38 +391,6 @@ class DepthToColorSyncRender {
         diffb2 = max(abs(b22 - bn), abs(g22 - gn)) * k;
         vec4 sim21 = vec4(lessThan(max(max(diffr1, diffg1), diffb1), similarThreshold));
         vec4 sim22 = vec4(lessThan(max(max(diffr2, diffg2), diffb2), similarThreshold));
-/*
-        // Background or zero with different color.
-        vec4 foreground11 = vec4(1.0) - background11;
-        vec4 foreground21 = vec4(1.0) - background21;
-        vec4 foreground11 = vec4(1.0) - background1;
-        vec4 foreground12 = vec4(1.0) - background2;
-        const vec4 ZERO = vec4(0.0);
-        vec4 zero1 = vec4(equal(z0, ZERO));
-        vec4 zero2 = vec4(equal(z1, ZERO));
-        vec4 zero11 = vec4(equal(z01, ZERO));
-        vec4 zero21 = vec4(equal(z11, ZERO));
-
-        // Same direction non-zero foreground including both pixels.
-        vec4 nzf1 = foreground1 * z0;
-        vec4 nzf2 = foreground2 * z1;
-        vec4 nzf11 = foreground11 * z01;
-        vec4 nzf21 = foreground21 * z11;
-        vec4 sdf1 = nzf1 * nzf11;
-        vec4 sdf2 = nzf2 * nzf21;
-        vec4 sdbz1 = (background1 + zero1) * (background11 + zero11);
-        vec4 sdbz2 = (background2 + zero2) * (background21 + zero21);
-
-        // When we have a same direction foregrounds with the same color and in
-        // the same time, opposite direction background or zero of different color,
-        // let's make the pixel foreground.
-        vec4 sdscodbz1 = sdf1 * sim1 * sdbz2 * (vec4(1.0) - sim2) * (vec4(1.0) - sim21);
-        vec4 sdscodbz2 = sdf2 * sim2 * sdbz1 * (vec4(1.0) - sim1) * (vec4(1.0) - sim11);
-
-        if (c.a == 0.0 && dot(sdscodbz1.ga, sdscodbz1.ga) + dot(sdscodbz2.ga, sdscodbz2.ga) > 0.0) {
-           fragColor = vec4(c.rgb, 0.4);
-           return;
-        }*/
 
         vec4 sb11 = sim11 * background11;
         vec4 sb12 = sim12 * background12;
@@ -723,7 +691,7 @@ class DepthToColorSyncRender {
 
     const cleanup = this.programs.cleanup;
     gl.useProgram(cleanup);
-    const lastReduceBlack = textures.reduceBlack[REDUCE_BLACK_PASSES - 1/*textures.reduceBlack.length - 1*/];
+    const lastReduceBlack = textures.reduceBlack[REDUCE_BLACK_PASSES - 1];
     gl.uniform1i(gl.getUniformLocation(cleanup, "s"), lastReduceBlack.unit);
     gl.uniform4f(gl.getUniformLocation(cleanup, 'mappedRectangle'), cameraParams.cameraName == "D415" ? 0.08 : 0, 0, 1, 1);
     gl.uniform4f(gl.getUniformLocation(cleanup, 'dd'), 1 / color.w, 1 / color.h, -1 / color.w, 0);
