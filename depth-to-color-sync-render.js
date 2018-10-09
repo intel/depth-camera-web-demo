@@ -46,11 +46,11 @@ class DepthToColorSyncRender {
     this.PAUSED = 2;
   }
 
-  createVideo() {
+  createVideo(w = 640, h = 480) { 
     var video = document.createElement("video");
     video.crossOrigin = "anonymous";
-    video.width = 640;
-    video.height = 480;
+    video.width = w;
+    video.height = h;
     video.autoplay = true;
     video.loop = true;
     video.oncanplay = function(){
@@ -58,14 +58,14 @@ class DepthToColorSyncRender {
     };  
     return video;
   }
-
+                                
   async setupCamera(depth_video = null) {
     if (depth_video)
       this.depthVideo = depth_video;
     if (!this.depthVideo)
       this.depthVideo = this.createVideo();
     if (!this.colorVideo)
-      this.colorVideo = this.createVideo();
+      this.colorVideo = this.createVideo(this.gl.canvas.width, this.gl.canvas.height);
 
     if (!this.depthVideo.srcObject)
       this.depthVideo.srcObject = await DepthCamera.getDepthStream();
@@ -78,7 +78,7 @@ class DepthToColorSyncRender {
     }
     if (!this.colorVideo.srcObject) {
         const colorStream =
-            await DepthCamera.getColorStreamForDepthStream(depthStream);
+            await DepthCamera.getColorStreamForDepthStream(depthStream, this.colorVideo.width, this.colorVideo.height);
         this.colorVideo.srcObject = colorStream;
     }
     return DepthCamera.getCameraCalibration(depthStream);
@@ -228,9 +228,10 @@ class DepthToColorSyncRender {
         float z = texture(sDepth, v).r;
         float z_around = min(min(nonZeroDepth(sDepth, v + ddDepth.rb),
                                  nonZeroDepth(sDepth, v - ddDepth.rb)),
-                             min(texture(sDepth, v + ddDepth.bg).r,
+                             min(texture(sDepth, v + ddDepth.bg).r, //deliberatelly
                                  nonZeroDepth(sDepth, v - ddDepth.bg)));
         z = (z == 1.0) ? 0.0 : z;
+
         z *= depthScale;
         z_around *= depthScale;
         // As depth and color are not sampled in the same time, prevent overlap
@@ -260,6 +261,7 @@ class DepthToColorSyncRender {
             dot(dist.rgb, dist.rgb) < 0.008 && backColor.a > 0.9) ? backColor.a : z;
         z = (z > 0.95) ? 0.95 : z;
         */
+        fragColor.rgb = sqrt(fragColor.rgb); // gamma correction aproximation.
         fragColor.a = z;
       }`;
 
@@ -275,7 +277,6 @@ class DepthToColorSyncRender {
       precision mediump float;
       uniform sampler2D s;
       uniform vec4 samplingStep;
-      uniform int handleLeftBlackBorder;
       vec4 bckgndThreshold = vec4(0.9);
       in vec2 t;
       out vec4 fragColor;
@@ -286,7 +287,7 @@ class DepthToColorSyncRender {
         if (c.a > 0.9)
           return;
 
-        const vec4 similarThreshold = vec4(0.015);
+        const vec4 similarThreshold = vec4(0.011);
         const float k = similarThreshold.r / 0.035;
 
         vec4 dd3 = samplingStep;
@@ -325,7 +326,7 @@ class DepthToColorSyncRender {
 
         
         // ci1 and ci5, ci2 and ci6,... are opposite. From z01 and z02, which
-        // caontain depth of the nearest 8 pixels, to z21 and z22 for the
+        // contain depth of the nearest 8 pixels, to z21 and z22 for the
         // furthest pixels.
         vec4 z01 = vec4(c01.a, c02.a, c03.a, c04.a);
         vec4 z02 = vec4(c05.a, c06.a, c07.a, c08.a);
@@ -419,7 +420,7 @@ class DepthToColorSyncRender {
           return;
         }    
       }`;
-    
+   
     const cleanupVertex = `#version 300 es
       in vec2 v;
       out vec2 t;
@@ -452,7 +453,7 @@ class DepthToColorSyncRender {
         d2 = vec4(lessThan(d2, range));
         float count = dot(d1, d1) + dot(d2, d2);
         c.a = (c.a < range.x) ? (count <= 3.0 ? 0.01 : count <= 6.0 ? 0.03 : c.a) :
-              (c.a > range.x && count >= 5.0) ? 0.5 : c.a;
+                                (c.a > range.x && count >= 5.0) ? 0.5 : c.a;
 
         float a = t.x < mappedRectangle.x ? 1.0 : c.a;
         fragColor = vec4(c.rgb, a);
@@ -484,7 +485,7 @@ class DepthToColorSyncRender {
         vec4 video = texture2D(backgroundVideo, bs);
 
         gl_FragColor = (tex.a < range) ? tex : vec4(0.0);
-        float alpha = tex.a > 0.0 ? tex.a < 0.02 ? 0.0 : (tex.a < 0.04 ? 0.3 : 1.0) : 1.0;
+        float alpha = tex.a > 0.0 ? tex.a < 0.015 ? 0.0 : (tex.a < 0.0350 ? 0.3 : 1.0) : 1.0;
         vec4 background = vec4(0.0);
         if (tex.a == 1.0) {
           background = vec4(1.0, 0.6, 0.1, 1.0);;
@@ -498,16 +499,15 @@ class DepthToColorSyncRender {
            background = vec4(1.0, 1.0, 0.0, 1.0);
         else if (tex.a > range) 
           background = vec4(0.0, 1.0, 1.0, 1.0);
+        else if (tex.a > 0.035 && tex.a < 0.05) 
+          background = vec4(1.0, 0.0, 0.0, 1.0);
+        
         
         background = vec4(0.0, 1.0, 1.0, 1.0);
         background = backgroundMode == 2.0 ? video : background;
         alpha = backgroundMode == 0.0 ? 1.0 : tex.a > range ? 0.0 : alpha;
-        gl_FragColor = mix(background, vec4(tex.rgb, 1.0), alpha);
-
-
-
-//        gl_FragColor = backgroundMode == 0.0 ? vec4(tex.rgb, 1.0) :
-//                       tex.a < range ? vec4(tex.rgb, 1.0) : background;
+        // Square the RGB values to revert noHolesPixel's gamma approximation.
+        gl_FragColor = mix(background, vec4(tex.rgb * tex.rgb, 1.0), alpha);
       }`; 
 
     function createProgram(gl, vs, ps) {
@@ -576,6 +576,7 @@ class DepthToColorSyncRender {
 
     const textures = this.textures;
     const sk = 11;
+    const push = 32;
     // init passes with framebuffers
     if (!this.passes) {
       this.passes = [{
@@ -586,43 +587,36 @@ class DepthToColorSyncRender {
         samplingStep: [sk / colorW, sk / colorH, -sk / colorW, 0.0],
         framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[0]]),
         program: this.programs.reduceBlack,
-        handleLeftBlackBorder: 1
       }, {
         in: textures.reduceBlack[0],
         samplingStep: [sk / colorW, sk / colorH, -sk / colorW, 0.0],
         framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[1]]),
         program: this.programs.reduceBlack,
-        handleLeftBlackBorder: 0
       }, {
         in: textures.reduceBlack[1],
         samplingStep: [(sk - 2) / colorW, (sk - 2) / colorH, -(sk - 2) / colorW, 0.0],
         framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[2]]),
         program: this.programs.reduceBlack,
-        handleLeftBlackBorder: 0
       }, {
         in: textures.reduceBlack[2],
         samplingStep: [(sk - 4) / colorW, (sk - 4) / colorH, -(sk - 4) / colorW, 0.0],
         framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[3]]),
         program: this.programs.reduceBlack,
-        handleLeftBlackBorder: 0
       }, {
         in: textures.reduceBlack[3],
         samplingStep: [(sk - 5) / colorW, (sk - 5) / colorH, -(sk - 5) / colorW, 0.0],
         framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[4]]),
         program: this.programs.reduceBlack,
-        handleLeftBlackBorder: 0
       }, {
         in: textures.reduceBlack[4],
         samplingStep: [(sk - 7) / colorW, (sk - 7) / colorH, -(sk - 7) / colorW, 0.0],
         framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[5]]),
         program: this.programs.reduceBlack,
-        handleLeftBlackBorder: 0
       }, {
         in: textures.reduceBlack[5],
         samplingStep: [(sk - 7) / colorW, (sk - 7) / colorH, -(sk - 7) / colorW, 0.0],
         framebuffer: createFramebuffer2D(gl, [textures.reduceBlack[6]]),
         program: this.programs.reduceBlack,
-        handleLeftBlackBorder: 0
       }, {
         samplingStep: [2 / colorW, 2 / colorH, -2 / colorW, 0.0],
         framebuffer: createFramebuffer2D(gl, [textures.cleanup]),
@@ -648,18 +642,19 @@ class DepthToColorSyncRender {
     const textures = this.textures;
     const color = textures.color;
     const intrin = cameraParams.getDepthIntrinsics(width, height);
+    const colorIntrin = cameraParams.getColorIntrinsics(color.w, color.h);
     const offsetx = (intrin.offset[0] / width);
     const offsety = (intrin.offset[1] / height);
     const focalxinv = width / intrin.focalLength[0];
     const focalyinv = height / intrin.focalLength[1];
     const focalx = intrin.focalLength[0] / width;
     const focaly = intrin.focalLength[1] / height;
-    const coloroffsetx = cameraParams.colorOffset[0] / color.w;
-    const coloroffsety = cameraParams.colorOffset[1] / color.h;
-    const colorfocalx = cameraParams.colorFocalLength[0] / color.w;
-    const colorfocaly = cameraParams.colorFocalLength[1] / color.h;
-    const colorfocalxinv = color.w / cameraParams.colorFocalLength[0];
-    const colorfocalyinv = color.h / cameraParams.colorFocalLength[1];
+    const coloroffsetx = colorIntrin.offset[0] / color.w;
+    const coloroffsety = colorIntrin.offset[1] / color.h;
+    const colorfocalx = colorIntrin.focalLength[0] / color.w;
+    const colorfocaly = colorIntrin.focalLength[1] / color.h;
+    const colorfocalxinv = color.w / colorIntrin.focalLength[0];
+    const colorfocalyinv = color.h / colorIntrin.focalLength[1];
 
     // Shaders asume const range up to 0.9, in order to express the depth using
     // color alpha channel.
@@ -687,12 +682,11 @@ class DepthToColorSyncRender {
     gl.useProgram(reduceBlack);
     reduceBlack.s = gl.getUniformLocation(reduceBlack, "s");
     reduceBlack.samplingStep = gl.getUniformLocation(reduceBlack, "samplingStep");
-    reduceBlack.handleLeftBlackBorder = gl.getUniformLocation(reduceBlack, "handleLeftBlackBorder");
 
     const cleanup = this.programs.cleanup;
     gl.useProgram(cleanup);
-    const lastReduceBlack = textures.reduceBlack[REDUCE_BLACK_PASSES - 1];
-    gl.uniform1i(gl.getUniformLocation(cleanup, "s"), lastReduceBlack.unit);
+    const last = textures.reduceBlack[REDUCE_BLACK_PASSES - 1];
+    gl.uniform1i(gl.getUniformLocation(cleanup, "s"), last.unit);
     gl.uniform4f(gl.getUniformLocation(cleanup, 'mappedRectangle'), cameraParams.cameraName == "D415" ? 0.08 : 0, 0, 1, 1);
     gl.uniform4f(gl.getUniformLocation(cleanup, 'dd'), 1 / color.w, 1 / color.h, -1 / color.w, 0);
 
@@ -795,8 +789,8 @@ class DepthToColorSyncRender {
               0, // mip-map level
               0, // x-offset
               0, // y-offset
-              width,
-              height,
+              colorVideo.videoWidth,
+              colorVideo.videoHeight,
               gl.RGBA,
               gl.UNSIGNED_BYTE,
               colorVideo,
@@ -848,8 +842,6 @@ class DepthToColorSyncRender {
              gl.uniform1i(pass.program.sPreviousBackground, textures.previousBackground.unit);
           if (pass.program.sBackground)
              gl.uniform1i(pass.program.sBackground, textures.background.unit);
-          if (pass.program.handleLeftBlackBorder)
-             gl.uniform1i(pass.program.handleLeftBlackBorder, pass.handleLeftBlackBorder);
           if (pass.program.backgroundMode) {
              gl.uniform1f(pass.program.backgroundMode, this_.backgroundColor ?
                           1 : this_.backgroundVideo ? 2 : 0);

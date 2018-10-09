@@ -86,7 +86,7 @@
     }
 
   // Call the method after getting depth_stream using getDepthStream.
-  static async getColorStreamForDepthStream(depthStream) {
+  static async getColorStreamForDepthStream(depthStream, w = 640, h = 480) {
     // To get color stream from the same physical device providing the depth
     // stream, we will use groupId, once it is implemented:
     // See https://crbug.com/627793
@@ -125,8 +125,8 @@
     // Select color stream.
     const constraints = {
       video: {
-        width: 640,
-        height: 480,
+        width: w,
+        height: h,
         deviceId: {exact: ids},
       }
     };
