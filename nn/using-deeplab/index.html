@@ -28,9 +28,9 @@
     if (location.search != calculated)
       location.search = calculated; // For initial opening, to force R16 and packed.
   </script>
-  <script src="../tfjs-core/dist/tf-core.js"> </script>
-  <script src="../tfjs-converter/dist/tf-converter.min.js"> </script>
-  <script src="../tfjs-layers/dist/tf-layers.min.js"> </script>
+  <script src="tfjs/tf-core.js"> </script>
+  <script src="tfjs/tf-converter.min.js"> </script>
+  <script src="tfjs/tf-layers.min.js"> </script>
 
   <script>
     function toggleEnv() {
@@ -42,8 +42,8 @@
 
     async function onLoad() {
       const TENSOR_EDGE = 257;
-      const MODEL_URL = `deeplabv3_mnv2_pascal_train_aug_web_model/argmax${TENSOR_EDGE}_2/tensorflowjs_model.pb`;
-      const WEIGHTS_URL = `deeplabv3_mnv2_pascal_train_aug_web_model/argmax${TENSOR_EDGE}_2/weights_manifest.json`;
+      const MODEL_URL = `argmax${TENSOR_EDGE}_2/tensorflowjs_model.pb`;
+      const WEIGHTS_URL = `argmax${TENSOR_EDGE}_2/weights_manifest.json`;
 
       const pack = sessionStorage.pack == 'true';
       document.getElementById("use-packed-toggle").checked = pack;
