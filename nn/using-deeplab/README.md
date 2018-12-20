@@ -6,6 +6,8 @@ This is not a background removal demo, yet - it doesn't handle border area proce
 
 This code is used for benchmarking TensorFlow.js implementation. TensorFlow.js tfjs-core code included here is built from pull requests [#1448 Packed batch<->space ND](https://github.com/tensorflow/tfjs-core/pull/1448) and [#1423 Packed arithmetics](https://github.com/tensorflow/tfjs-core/pull/1423) applied to master at [a71700b](https://github.com/tensorflow/tfjs-core/commit/a71700bedf5a65b79203a88523e4c27d3e9b9ae8).
 
+Run **live** benchmark on your device [by following the link](https://01org.github.io/depth-camera-web-demo/nn/using-deeplab/index.html).
+
 ## Benchmark results
 
 Benchmark runs inference and dataSync() to read back data from GPU on every frame and displays last 20 frames average for both as *total(inference + dataSync)ms* per frame.<br />
