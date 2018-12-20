@@ -1,0 +1,226 @@
+<html>
+  <head>
+    <body onload="onLoad()">
+      <div id="container">
+        <div class="ctrl" id="use-packed">Use packed operations<input id="use-packed-toggle" type="checkbox" onclick="toggleEnv()" checked></div>
+        <div class="ctrl" id="force-r16">Use half float and WebGL 1.0<input id="force-r16-toggle" type="checkbox" onclick="toggleEnv()" checked></div>
+        <div class="ctrl" id="show-background">Show background as cyan<input id="show-background-toggle" type="checkbox" checked></div>
+        <div class="ctrl" id="show-average">20 average: ...</div>
+        <canvas id="canvas" width=640px height=480px></canvas>
+      </div>
+    </body>
+  </head>
+  <script>
+    // Forcing half float and WebGL 1.0 envirmental flags needs to be done
+    // before loading tfjs-core. Flags are specified through search string.
+    function calculateLocationSearchForFlags() {
+      const pack = sessionStorage.pack != 'false';
+      sessionStorage.pack = pack;
+      let flags = pack ? 'WEBGL_PACK:true,' : '';
+    
+      const r16 = sessionStorage.r16 != 'false';
+      sessionStorage.r16 = r16;
+      if (r16)
+        flags += 'WEBGL_RENDER_FLOAT32_ENABLED:false,WEBGL_VERSION:1';
+      return '?tfjsflags=' + flags;
+    }
+    const calculated = calculateLocationSearchForFlags();
+    if (location.search != calculated)
+      location.search = calculated; // For initial opening, to force R16 and packed.
+  </script>
+  <script src="../tfjs-core/dist/tf-core.js"> </script>
+  <script src="../tfjs-converter/dist/tf-converter.min.js"> </script>
+  <script src="../tfjs-layers/dist/tf-layers.min.js"> </script>
+
+  <script>
+    function toggleEnv() {
+      sessionStorage.pack = document.getElementById("use-packed-toggle").checked;
+      sessionStorage.r16 = document.getElementById("force-r16-toggle").checked;
+      const calculated = calculateLocationSearchForFlags();
+      location.search = calculated; // reloads...
+    }
+
+    async function onLoad() {
+      const TENSOR_EDGE = 257;
+      const MODEL_URL = `deeplabv3_mnv2_pascal_train_aug_web_model/argmax${TENSOR_EDGE}_2/tensorflowjs_model.pb`;
+      const WEIGHTS_URL = `deeplabv3_mnv2_pascal_train_aug_web_model/argmax${TENSOR_EDGE}_2/weights_manifest.json`;
+
+      const pack = sessionStorage.pack == 'true';
+      document.getElementById("use-packed-toggle").checked = pack;
+      const r16 = sessionStorage.r16 != 'false';
+      document.getElementById("force-r16-toggle").checked = r16;
+
+      const [model, stream] = await Promise.all([
+          tf.loadFrozenModel(MODEL_URL, WEIGHTS_URL),
+          navigator.mediaDevices.getUserMedia({video: {facingMode: 'user',
+              frameRate: 15, width : 640, height:480}})]);
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.width = video.height = TENSOR_EDGE;
+      const ctx = document.getElementById("canvas").getContext("2d");        
+      const videoCopy = ctx.canvas.cloneNode(false).getContext("2d");
+      const maskContext = document.createElement('canvas').getContext("2d");
+      const average = document.getElementById("show-average");
+      maskContext.canvas.width = maskContext.canvas.height = TENSOR_EDGE;
+      const img = maskContext.createImageData(TENSOR_EDGE, TENSOR_EDGE);
+      let imgd = img.data;
+      new Uint32Array(imgd.buffer).fill(0x00FFFF00);
+
+      let compiled = model.executor.compiledMap.get("ImageTensor");
+      
+      // Note: For production code, do this using graph_transform. Node removal
+      // is implemented here to speedup debugging and trial and error approach.
+      function findNodeIndex(name) {
+        for (let i = 0; i < compiled.length; i++) {
+          if (compiled[i].name == name)
+            return i;
+        }
+        return -1;
+      }
+      function removeNode(name, replaceByChild = -1, replaceByInput = -1) {
+        const index = findNodeIndex(name);
+        if (index < 0) {
+          console.error("No such node:" + name);
+          return;
+        }
+        let n = compiled.splice(index, 1)[0];
+        if (replaceByChild + replaceByInput == -2)
+          return; // we remove the node and don't update connections.
+        for (let i = 0; i < n.inputs.length; i++) {
+          const input = n.inputs[i];
+          const inchild = input.children[0].name == name ? 0 :
+                          input.children[1].name == name ? 1 :
+                          input.children[2].name == name ? 2 :
+                          input.children[3].name == name ? 3 : -1;
+          input.children[inchild] = n.children[replaceByChild];  
+        }
+        const replacement = n.inputs[replaceByInput];
+        for (let i = 0; i < n.children.length; i++) {
+          const cinput = n.children[i].inputNames[0] == name ? 0 :
+                         n.children[i].inputNames[1] == name ? 1 :
+                         n.children[i].inputNames[2] == name ? 2 :
+                         n.children[i].inputNames[3] == name ? 3 : -1;
+          n.children[i].inputs[cinput] = replacement;
+          n.children[i].inputNames[cinput] = replacement.name;
+        }
+      }
+      
+      if (TENSOR_EDGE == 513) {
+        let cast = compiled[findNodeIndex("Cast")];
+        let expand_dims_1 = compiled[findNodeIndex("ExpandDims_1")];
+        cast.children.splice(1, 1);
+        cast.children[0] = expand_dims_1;
+        expand_dims_1.inputs[0] = cast;
+        expand_dims_1.inputNames[0] = cast.name;
+
+        removeNode("ResizeBilinear_2", 0, 0);
+        // Note: For production code, do this using graph_transform. Node removal
+        // is implemented here to speedup debugging and trial and error research approach.
+        const removeNodes = ["stack", "stack/0", "stack_1", "stack_3", "stack_2", "ImageTensor",
+                           "Shape_1", "strided_slice_1", "strided_slice_2",
+                           "ToFloat_1/x", "ToFloat_1", "ToInt32", "Squeeze_1", "Shape_3", "strided_slice_5",
+                           "Shape_2", "strided_slice_3", "strided_slice_4",
+                           "strided_slice_6", "sub_1", "sub_2", "Pad", "add_2", "ResizeBilinear", 
+                           "sub", "Maximum_1", "Maximum", "add_1", "add", "Assert/Assert/data_1",
+                           "sub_1/x", "sub_6", "sub_4", "ExpandDims"];
+        for (let i = 0; i < removeNodes.length; i++)
+          removeNode(removeNodes[i], -1, -1);
+      } else {
+        let cast = compiled[findNodeIndex("Cast")];
+        let expand_dims_1 = compiled[findNodeIndex("ExpandDims")];
+        cast.children.splice(1, 1);
+        cast.children[0] = expand_dims_1;
+        expand_dims_1.inputs[0] = cast;
+        expand_dims_1.inputNames[0] = cast.name;
+
+        removeNode("ResizeBilinear_1", 0, 0);
+        const removeNodes = ["stack", "stack/0", "stack_1", "stack_3", "stack_2", "ImageTensor",
+                           "Shape_1", "strided_slice_1", "strided_slice_2",
+                           "Shape_2", "strided_slice_3", "strided_slice_4",
+                           "strided_slice_6", "sub_1",  "sub_2", "Pad", "add_2", "Reshape",
+                           "sub", "Maximum_1", "Maximum", "add_1", "add", "Assert/Assert/data_1",
+                           "sub_1/x", "sub_6", "sub_4"];
+        for (let i = 0; i < removeNodes.length; i++)
+          removeNode(removeNodes[i], -1, -1);
+      }
+      compiled.splice(0, 120);
+      let averageCount = 0;
+      let timeExecute = 0;
+      let timeRead = 0;
+      const render = () => {
+        const t1 = performance.now();
+        videoCopy.drawImage(video, 0, 0, ctx.canvas.width, ctx.canvas.height);
+        const out = tf.tidy(() => {
+          return model.execute({'ImageTensor': tf.fromPixels(video).expandDims(0)});
+        });
+        const t2 = performance.now();
+        const data = document.getElementById("show-background-toggle").checked ?
+                     out.dataSync() : new Uint8Array(TENSOR_EDGE * TENSOR_EDGE).fill(15);
+        const t3 = performance.now();
+        for (let i = 0; i < data.length; i++) {
+          imgd[i * 4 + 3] = data[i] == 15 ? 0 : 255;
+        }
+        maskContext.putImageData(img, 0, 0);
+        ctx.drawImage(videoCopy.canvas, 0, 0);
+        ctx.drawImage(maskContext.canvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
+        timeExecute += (t2 - t1);
+        timeRead += (t3 - t2);
+        if (++averageCount == 20) {
+          timeExecute /= averageCount;
+          timeRead /= averageCount;
+          average.innerText = '20 average: ' + (timeExecute + timeRead).toFixed(2) 
+              + '(' + timeExecute.toFixed(2) + ' + ' + timeRead.toFixed(2) + ')ms';
+          timeExecute = 0;
+          timeRead = 0;
+          averageCount = 0;
+        }
+        window.requestAnimationFrame(render);
+      }
+      video.oncanplay = render;
+      video.srcObject = stream;
+    }
+  </script>
+  <style type="text/css">
+    #container {
+      position: relative;
+      display: inline-block;
+    }
+    .ctrl {
+      position: absolute;
+      color: lightgrey;
+      z-index: 5;
+      height: 20px;
+      display:block;
+      -webkit-touch-callout: none;
+      -moz-user-select: none;
+      user-select: none; 
+    }
+    #show-average {
+      bottom: 20px;
+      left: 10px;
+      text-align: left;
+    }
+    #force-r16 {
+      bottom: 70px;
+      right: 20px;
+      text-align: right;
+    }
+    #use-packed {
+      bottom: 45px;
+      right: 20px;
+      text-align: right;
+    }
+    #show-background {
+      bottom: 20px;
+      right: 20px;
+      text-align: right;
+    }
+    #show-background-toggle, #use-packed-toggle, #force-r16-toggle {
+      height: 15px !important;
+      vertical-align:middle;
+    }
+  </style>    
+</html>
+
+        
+
