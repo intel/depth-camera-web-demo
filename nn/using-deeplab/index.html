@@ -3,6 +3,7 @@
     <body onload="onLoad()">
       <div id="container">
         <div class="ctrl" id="use-packed">Use packed operations<input id="use-packed-toggle" type="checkbox" onclick="toggleEnv()" checked></div>
+        <div class="ctrl" id="use-packed-array">Use packed array ops<input id="use-packed-array-toggle" type="checkbox" onclick="toggleEnv()" checked></div>
         <div class="ctrl" id="force-r16">Use half float and WebGL 1.0<input id="force-r16-toggle" type="checkbox" onclick="toggleEnv()" checked></div>
         <div class="ctrl" id="show-background">Show background as cyan<input id="show-background-toggle" type="checkbox" checked></div>
         <div class="ctrl" id="show-average">20 average: ...</div>
@@ -16,8 +17,11 @@
     function calculateLocationSearchForFlags() {
       const pack = sessionStorage.pack != 'false';
       sessionStorage.pack = pack;
+      const packarray = sessionStorage.packarray != 'false';
+      sessionStorage.packarray = packarray;
+
       let flags = pack ? 'WEBGL_PACK:true,' : '';
-    
+      flags += ('WEBGL_PACK_ARRAY_OPERATIONS:' + (packarray ? 'true,' : 'false,')); 
       const r16 = sessionStorage.r16 != 'false';
       sessionStorage.r16 = r16;
       if (r16)
@@ -35,6 +39,7 @@
   <script>
     function toggleEnv() {
       sessionStorage.pack = document.getElementById("use-packed-toggle").checked;
+      sessionStorage.packarray = document.getElementById("use-packed-array-toggle").checked;
       sessionStorage.r16 = document.getElementById("force-r16-toggle").checked;
       const calculated = calculateLocationSearchForFlags();
       location.search = calculated; // reloads...
@@ -47,6 +52,8 @@
 
       const pack = sessionStorage.pack == 'true';
       document.getElementById("use-packed-toggle").checked = pack;
+      const packarray = sessionStorage.packarray == 'true';
+      document.getElementById("use-packed-array-toggle").checked = packarray;
       const r16 = sessionStorage.r16 != 'false';
       document.getElementById("force-r16-toggle").checked = r16;
 
@@ -148,8 +155,8 @@
       let timeExecute = 0;
       let timeRead = 0;
       const render = () => {
-        const t1 = performance.now();
         videoCopy.drawImage(video, 0, 0, ctx.canvas.width, ctx.canvas.height);
+        const t1 = performance.now();
         const out = tf.tidy(() => {
           return model.execute({'ImageTensor': tf.fromPixels(video).expandDims(0)});
         });
@@ -201,6 +208,11 @@
       text-align: left;
     }
     #force-r16 {
+      bottom: 95px;
+      right: 20px;
+      text-align: right;
+    }
+    #use-packed-array {
       bottom: 70px;
       right: 20px;
       text-align: right;
@@ -215,7 +227,7 @@
       right: 20px;
       text-align: right;
     }
-    #show-background-toggle, #use-packed-toggle, #force-r16-toggle {
+    #show-background-toggle, #use-packed-toggle, #force-r16-toggle, #use-packed-array-toggle {
       height: 15px !important;
       vertical-align:middle;
     }
