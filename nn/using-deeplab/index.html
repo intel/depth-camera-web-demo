@@ -9,7 +9,6 @@
         <div class="ctrl" id="show-average">20 average: ...</div>
         <canvas id="canvas" width=640px height=480px></canvas>
       </div>
-      <video id="video" autoplay></video>
     </body>
   </head>
   <script>
@@ -60,8 +59,10 @@
 
       const [model, stream] = await Promise.all([
           tf.loadFrozenModel(MODEL_URL, WEIGHTS_URL),
-          navigator.mediaDevices.getUserMedia({video: true})]);
-      const video = document.getElementById("video");
+          navigator.mediaDevices.getUserMedia({video: {facingMode: 'user',
+              frameRate: 15, width : 640, height:480}})]);
+      const video = document.createElement('video');
+      video.autoplay = true;
       video.width = video.height = TENSOR_EDGE;
       const ctx = document.getElementById("canvas").getContext("2d");        
       const videoCopy = ctx.canvas.cloneNode(false).getContext("2d");
@@ -230,10 +231,7 @@
       height: 15px !important;
       vertical-align:middle;
     }
-    #video {
-      position: absolute;
-    }
-    </style>    
+  </style>    
 </html>
 
         
