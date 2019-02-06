@@ -54,7 +54,7 @@ Senz3D) or R200,
 
 These are the constraints of current implementation. The plan is to support other depth cameras and OSX and Android, too.
 
-##[Articles related to the demos](#articles-related-to-the-demos):
+## Articles related to the demos:
 * [Depth Camera Capture in HTML5](https://01.org/zh/node/5101),
 * [Typing in the air using depth camera, Chrome, JavaScript, and WebGL transform feedback](https://software.intel.com/en-us/blogs/2017/06/22/tutorial-typing-in-the-air-using-depth-camera-chrome-javascript-and-webgl-transform)
 * [AR marker detection on GPU using WebGL](https://01.org/zh/node/26012)
