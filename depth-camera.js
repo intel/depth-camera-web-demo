@@ -148,6 +148,7 @@
         : label.includes("ZR300") ? "ZR300"
         : label.includes("415") ? "D415"
         : label.includes("430") ? "D430"
+        : label.includes("435i") ? "Intel(R) RealSense(TM) Depth Camera 435i Depth (8086:0b3a)"
         : label.includes(") 4") ? "generic4"
         : label;
 
@@ -487,6 +488,62 @@
         depthDistortionModel: DistortionModel.NONE,
         depthDistortioncoeffs: [0, 0, 0, 0, 0],
         colorDistortionModel: DistortionModel.NONE,
+        colorDistortioncoeffs: [0, 0, 0, 0, 0],
+      };
+    } else if (cameraName === "Intel(R) RealSense(TM) Depth Camera 435i Depth (8086:0b3a)")  {
+      result =  {
+        depthScale: 0.00100000005,
+        getDepthIntrinsics: function(width, height) {
+          if (width == 640 && height == 480) {
+            return {
+              offset: [319.640411376953, 34.501083374023],
+              focalLength: [383.972534179688, 383.972534179688],
+            };
+          } else if (width == 1280 && height == 720) {
+            return {
+              offset: [639.400695800781, 350.835144042969],
+              focalLength: [639.954223632812, 639.954223632812],
+            };
+          } else {
+            throwUnsupportedSizeError();
+          }
+        },
+        getColorIntrinsics: function(width, height) {
+          if (width == 640 && height == 480) {
+            return {
+              offset: [319.640411376953, 234.501083374023],
+              focalLength: [383.972534179688, 383.972534179688],
+            };
+          } else if (width == 1280 && height == 720) {
+            return {
+              offset: [646.415161132812, 349.537872314453],
+              focalLength: [639.954223632812, 639.954223632812],
+            };
+          } else {
+            throwUnsupportedSizeError();
+          }
+        },
+        colorOffset: new Float32Array(
+          [324.276763916016, 233.025253295898]
+        ),
+        colorFocalLength: new Float32Array(
+          [616.862121582031, 617.127319335938]
+        ),
+        depthToColor: [
+          0.999992370605469, 0.000624090549536049, -0.00385748990811408, 0,
+          -0.000635052449069917, 0.999995768070221, -0.00284114643000066, 0,
+          0.00385570037178695, 0.00284357438795269, 0.999988496303558, 0,
+          0.0149379102513194, 0.000216223328607157, 0.000277608894975856, 1,
+        ],
+        colorToDepth: [
+          0.999992370605469, -0.000635052449069917, 0.00385570037178695, 0,
+          0.000624090549536049, 0.999995768070221, 0.00284357438795269, 0,
+          -0.00385748990811408, -0.00284114643000066, 0.999988496303558, 0,
+          -0.0149368597194552, -0.000205947319045663, -0.000335816672304645, 1
+        ],
+        depthDistortionModel: DistortionModel.MODIFIED_BROWN_CONRADY,
+        depthDistortioncoeffs: [0, 0, 0, 0, 0],
+        colorDistortionModel: DistortionModel.MODIFIED_BROWN_CONRADY,
         colorDistortioncoeffs: [0, 0, 0, 0, 0],
       };
     } else if (cameraName === "generic4")  {
