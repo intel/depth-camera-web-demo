@@ -148,7 +148,7 @@
         : label.includes("ZR300") ? "ZR300"
         : label.includes("415") ? "D415"
         : label.includes("430") ? "D430"
-        : label.includes("435") ? "435"
+        : label.includes("435") ? "D435"
         : label.includes(") 4") ? "generic4"
         : label;
 
