@@ -148,7 +148,7 @@
         : label.includes("ZR300") ? "ZR300"
         : label.includes("415") ? "D415"
         : label.includes("430") ? "D430"
-        : label.includes("435i") ? "Intel(R) RealSense(TM) Depth Camera 435i Depth (8086:0b3a)"
+        : label.includes("435") ? "435"
         : label.includes(") 4") ? "generic4"
         : label;
 
@@ -490,7 +490,7 @@
         colorDistortionModel: DistortionModel.NONE,
         colorDistortioncoeffs: [0, 0, 0, 0, 0],
       };
-    } else if (cameraName === "Intel(R) RealSense(TM) Depth Camera 435i Depth (8086:0b3a)")  {
+    } else if (cameraName === "D435")  {
       result =  {
         depthScale: 0.00100000005,
         getDepthIntrinsics: function(width, height) {
