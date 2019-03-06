@@ -91,7 +91,7 @@
     // stream, we will use groupId, once it is implemented:
     // See https://crbug.com/627793
     // For now, enumerate devices based on label.
-    // Note: depth_stream is not used, for now, but deliberatelly added as a
+    // Note: depth_stream is not used, for now, but deliberately added as a
     // parameter to mandate the need for previous call to getDepthStream.
 
     let depth_device_id = null;
@@ -107,27 +107,32 @@
     }
 
     var all_devices = await navigator.mediaDevices.enumerateDevices();
-    const devices = all_devices.filter((device) => (
-        device.kind == "videoinput" &&
-        device.label.includes("RealSense") &&
-        device.label.includes("RGB") &&
-        !device.label.includes("Depth") &&
-        device.deviceId != depth_device_id));
-
+    let devices = all_devices.filter((device) => (
+        device.kind == 'videoinput' &&
+        device.label.includes('RealSense') &&
+        device.label.includes('RGB') &&
+        (device.label != depth.label ||
+         device.deviceId != depth_device_id)));
     if (devices.length < 1) {
       throw new Error("No RealSense camera connected.");
+    } else if (devices.length > 1) {
+      devices = devices.sort((a, b) => {
+        // Heuristics, as everything else in this method: pick camera with
+        // 'RGB' at the end
+        return b.label.lastIndexOf('RGB') - a.label.lastIndexOf('RGB');
+      });
     }
 
-    // Select streams from these ids, so that some other camera doesn't get
-    // selected (e.g. if the user has another rgb camera).
-    const ids = devices.map(device => device.deviceId);
+    // Select stream the id, so that some other camera doesn't get selected
+    // (e.g. if the user has another rgb camera).
+    const id = devices[0].deviceId;
 
     // Select color stream.
     const constraints = {
       video: {
         width: w,
         height: h,
-        deviceId: {exact: ids},
+        deviceId: {exact: id},
       }
     };
     return navigator.mediaDevices.getUserMedia(constraints);
@@ -147,7 +152,8 @@
         : (label.includes("Camera S") || label.includes("SR300")) ? "SR300"
         : label.includes("ZR300") ? "ZR300"
         : label.includes("415") ? "D415"
-        : label.includes("430") ? "D430"
+        : label.includes("430") ? "D435"
+        : label.includes("435i") ? "D435i"
         : label.includes("435") ? "D435"
         : label.includes(") 4") ? "generic4"
         : label;
@@ -429,7 +435,7 @@
         colorDistortionModel: DistortionModel.NONE,
         colorDistortioncoeffs: [0, 0, 0, 0, 0],
       };
-    } else if (cameraName === "D430")  {
+    } else if (cameraName === "D435")  {
       result =  {
         depthScale: 0.00100000005,
         getDepthIntrinsics: function(width, height) {
@@ -490,13 +496,13 @@
         colorDistortionModel: DistortionModel.NONE,
         colorDistortioncoeffs: [0, 0, 0, 0, 0],
       };
-    } else if (cameraName === "D435")  {
+    } else if (cameraName === "D435i")  {
       result =  {
         depthScale: 0.00100000005,
         getDepthIntrinsics: function(width, height) {
           if (width == 640 && height == 480) {
             return {
-              offset: [319.640411376953, 34.501083374023],
+              offset: [319.640411376953, 234.501083374023],
               focalLength: [383.972534179688, 383.972534179688],
             };
           } else if (width == 1280 && height == 720) {
@@ -511,35 +517,35 @@
         getColorIntrinsics: function(width, height) {
           if (width == 640 && height == 480) {
             return {
-              offset: [319.640411376953, 234.501083374023],
-              focalLength: [383.972534179688, 383.972534179688],
+              offset: [326.527374267578, 241.035064697266],
+              focalLength: [613.288269042969, 613.207214355469],
             };
           } else if (width == 1280 && height == 720) {
             return {
-              offset: [646.415161132812, 349.537872314453],
-              focalLength: [639.954223632812, 639.954223632812],
+              offset: [649.791015625, 361.552581787109],
+              focalLength: [919.932373046875, 919.810852050781],
             };
           } else {
             throwUnsupportedSizeError();
           }
         },
         colorOffset: new Float32Array(
-          [324.276763916016, 233.025253295898]
+          [326.527374267578, 241.035064697266]
         ),
         colorFocalLength: new Float32Array(
-          [616.862121582031, 617.127319335938]
+          [613.288269042969, 613.207214355469]
         ),
         depthToColor: [
-          0.999992370605469, 0.000624090549536049, -0.00385748990811408, 0,
-          -0.000635052449069917, 0.999995768070221, -0.00284114643000066, 0,
-          0.00385570037178695, 0.00284357438795269, 0.999988496303558, 0,
-          0.0149379102513194, 0.000216223328607157, 0.000277608894975856, 1,
+          0.999998152256012, 0.000072939285018947, -0.00191376695875078, 0,
+          -0.0000624307940597646, 0.999984920024872, 0.00549048557877541, 0,
+          0.00191413855645806, -0.00549035612493753, 0.999983072280884, 0,
+          0.0145636992529035, 0.0000774716536398046, 0.00038804262294434, 1,
         ],
         colorToDepth: [
-          0.999992370605469, -0.000635052449069917, 0.00385570037178695, 0,
-          0.000624090549536049, 0.999995768070221, 0.00284357438795269, 0,
-          -0.00385748990811408, -0.00284114643000066, 0.999988496303558, 0,
-          -0.0149368597194552, -0.000205947319045663, -0.000335816672304645, 1
+          0.999998152256012, -0.0000624307940597646, 0.00191413855645806, 0,
+          0.000072939285018947, 0.999984920024872, -0.00549035612493753, 0,
+          -0.00191376695875078, 0.00549048557877541, 0.999983072280884, 0,
+          -0.0145629355683923, -0.0000786918026278727, -0.000415487680584192, 1
         ],
         depthDistortionModel: DistortionModel.MODIFIED_BROWN_CONRADY,
         depthDistortioncoeffs: [0, 0, 0, 0, 0],

@@ -71,9 +71,9 @@ class DepthToColorSyncRender {
       this.depthVideo.srcObject = await DepthCamera.getDepthStream();
     const depthStream = this.depthVideo.srcObject;
 
-    // Supported only for D415 and d430 cameras
-    let track = depthStream.getVideoTracks()[0];
-    if (track.label.indexOf("430") == -1 && track.label.indexOf("415") == -1) {
+    const calibration = DepthCamera.getCameraCalibration(depthStream);
+    // Supported only for D400-Series Depth Cameras
+    if (calibration.cameraName.indexOf('D4') == -1) {
       throw new Error('Background removal is supported only for Intel\u00ae RealSense\u2122 D400-Series Depth Cameras.');
     }
     if (!this.colorVideo.srcObject) {
@@ -81,7 +81,7 @@ class DepthToColorSyncRender {
             await DepthCamera.getColorStreamForDepthStream(depthStream, this.colorVideo.width, this.colorVideo.height);
         this.colorVideo.srcObject = colorStream;
     }
-    return DepthCamera.getCameraCalibration(depthStream);
+    return calibration;
   }
 
   showBackgroundColor(on) {
