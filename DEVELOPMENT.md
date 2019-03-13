@@ -4,7 +4,7 @@ After exploring possibility to implement JavaScript API that would fetch calibra
 
 The section here explains where from, and how to, add numerical values to depth-camera.js file. This work is required for new camera models or if you want to support depth or color stream track resolutions that are not yet specified in depth-camera.js.
 
-We would need [rs-enumerate-devices](https://github.com/IntelRealSense/librealsense/tree/master/tools/enumerate-devices) tool. It is part of RealSense SDK. Install SDK binary [binary or build it from source code](https://github.com/IntelRealSense/librealsense/). Connect the camera and run ```rs-enumerate-devices -c``` to get the calibration data printed out to terminal. Copy values from there to depth-camera.js following the example:
+We would need [rs-enumerate-devices](https://github.com/IntelRealSense/librealsense/tree/master/tools/enumerate-devices) tool. It is part of RealSense SDK. Install SDK binary [binary or build it from source code](https://github.com/IntelRealSense/librealsense/). Connect the camera and run ```rs-enumerate-devices -c``` to get the calibration data printed out to terminal. Copy values from there to [depth-camera.js](https://github.com/01org/depth-camera-web-demo/blob/926fd23c535e3a5a07fcfb94bf9afea0e31a9dc4/depth-camera.js#L274) following the example:
 
 ```
     } else if (cameraName === "SR300")  {
