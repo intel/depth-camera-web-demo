@@ -1,4 +1,4 @@
-### Specifying calibration parameters for RealSense cameras
+### How to specify calibration parameters for RealSense cameras
 
 After exploring possibility to implement JavaScript API that would fetch calibration parameters from camera ([link to outdated specification for the reference](https://www.w3.org/TR/2017/WD-mediacapture-depth-20170328/)), that approach got abandoned calibration parameters are instead, specified in JavaScript code here, in [depth-camera.js](https://github.com/01org/depth-camera-web-demo/blob/926fd23c535e3a5a07fcfb94bf9afea0e31a9dc4/depth-camera.js#L149) file. Given that all RealSense cameras of the same model are factory calibrated to the same values and that firmware update (so far) doesn't change calibration parameters, specifying constant values in depth-camera.js and lookup based on camera label worked fine,... so far.
 
