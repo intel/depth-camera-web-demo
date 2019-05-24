@@ -13,7 +13,7 @@
 </tr>
 <tr>
 <td align="center" valign="center" colspan="2">
-</br><p>Moving boxes using hands (or a paper) demo shows live depth captured mesh interaction with scene objects; combining 3D world and depth captured hands (or other objects) rendering and Bullet Physics. <a href="https://intel.github.io/depth-camera-web-demo/gesture/index.html">Run live demo</a>.</br></br>
+</br><p>Moving boxes using hands (or a paper) demo shows live depth captured mesh interaction with scene objects; combining 3D world and depth captured hands (or other objects) rendering and Bullet Physics. <a href="gesture/index.html">Run live demo</a>.</br></br>
 </p>
 </td>
 </tr>
@@ -23,12 +23,12 @@
 <td align="center" valign="center">
 <img src="backgroundremoval.gif" alt="backgroundremoval.gif is not yet loaded."/>
 <br />
-<p>Simple background removal implemented as flood-fill of background color to similarly colored pixels. Works only with simple backgrounds - e.g. room walls on the demo gif. Check the <a href="https://01.org/zh/node/28902">tutorial article</a> and <a href="https://intel.github.io/depth-camera-web-demo/depthdemo.html">run live demo</a>.</p>
+<p>Simple background removal implemented as flood-fill of background color to similarly colored pixels. Works only with simple backgrounds - e.g. room walls on the demo gif. Check the <a href="https://01.org/zh/node/28902">tutorial article</a> and <a href="depthdemo.html">run live demo</a>.</p>
 </td>
 <td align="center" valign="center">
 <img src="typing_in_the_air/typing_in_the_air.gif" alt="typing_in_the_air.gif is not yet loaded."/>
 <br />
-<p>Typing in the air tutorial shows how to use depth stream and WebGL transform feedback to do simple gesture recognition. Check the <a href="https://software.intel.com/en-us/blogs/2017/06/22/tutorial-typing-in-the-air-using-depth-camera-chrome-javascript-and-webgl-transform">tutorial article</a> and <a href="https://intel.github.io/depth-camera-web-demo/typing_in_the_air/front_capture_typing.html">run live demo</a>.</p>
+<p>Typing in the air tutorial shows how to use depth stream and WebGL transform feedback to do simple gesture recognition. Check the <a href="https://software.intel.com/en-us/blogs/2017/06/22/tutorial-typing-in-the-air-using-depth-camera-chrome-javascript-and-webgl-transform">tutorial article</a> and <a href="typing_in_the_air/front_capture_typing.html">run live demo</a>.</p>
 </td>
 </tr>
 <tr>
@@ -40,7 +40,7 @@
 <td align="center" valign="center">
 <img src="how_the_demo_looks.gif" alt="how_the_demo_looks.gif is not yet loaded." style="height:400px;width:452px;"/>
 <br />
-<p>HTML5 Depth Capture tutorial shows how to access depth stream, check the <a href="https://01.org/zh/node/5101">tutorial article</a> and <a href="https://intel.github.io/depth-camera-web-demo/depthdemo.html">run live demo</a>.</p>
+<p>HTML5 Depth Capture tutorial shows how to access depth stream, check the <a href="https://01.org/zh/node/5101">tutorial article</a> and <a href="depthdemo.html">run live demo</a>.</p>
 </td>
 </tr>
 </table>
