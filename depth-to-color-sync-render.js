@@ -240,7 +240,7 @@ class DepthToColorSyncRender {
         // z = min(z, z_around);
         z = z_around < z ? z_around : z;
 
-        backColor = z > range ? vec4(fragColor.rgb, z) : backColor;
+        backColor = vec4(fragColor.rgb, z);
         backgroundColor = backColor;
 
         // TODO: use previous depth frame to get depth value if not defined
