@@ -185,9 +185,7 @@ class DepthToColorSyncRender {
       in vec2 t;
       
       uniform sampler2D sDepth;
-      uniform sampler2D sPreviousDepth;
       uniform sampler2D sColor;
-      uniform sampler2D sPreviousBackground;
       uniform vec3 dd; // vec3(1/w, 1/h, 0)
       uniform vec3 ddDepth; // vec3(1/w, 1/h, 0)
       uniform float depthScale;
@@ -219,7 +217,6 @@ class DepthToColorSyncRender {
 
       void main(){
         fragColor = texture(sColor, t);
-        vec4 backColor = texture(sPreviousBackground, t);
         // Get the depth for color pixel.
         vec4 colorPos = colorDeproject(t, 0.5);
         vec4 depthPos = colorToDepth * colorPos;
@@ -240,7 +237,7 @@ class DepthToColorSyncRender {
         // z = min(z, z_around);
         z = z_around < z ? z_around : z;
 
-        backColor = vec4(fragColor.rgb, z);
+        vec4 backColor = vec4(fragColor.rgb, z);
         backgroundColor = backColor;
 
         // TODO: use previous depth frame to get depth value if not defined
@@ -459,32 +456,31 @@ class DepthToColorSyncRender {
         fragColor = vec4(c.rgb, a);
       }`;
 
-    const renderVertex = `
-      attribute vec2 v;
-      varying vec2 t;
+    const renderVertex = `#version 300 es
+      in vec2 v;
+      out vec2 t;
 
       void main(){
         gl_Position = vec4(v.x * 2.0 - 1.0, -v.y * 2.0 + 1.0, 0, 1);
         t = v;
       }`;
-    const renderPixel = `
+    const renderPixel = `#version 300 es
       precision mediump float;
       uniform sampler2D s;
-      uniform sampler2D sBackground;
       uniform float backgroundMode;
       uniform sampler2D backgroundVideo;
       uniform vec2 backgroundVideoScale;      
-      varying vec2 t;
+      in vec2 t;
+      out vec4 fragColor;
 
       const vec4 rgbmask = vec4(1.0, 1.0, 1.0, 0.0);
       const float range = 0.9;            
 
       void main(){
-        vec4 tex = texture2D(s, t);
+        vec4 tex = texture(s, t);
         vec2 bs = t * backgroundVideoScale + (vec2(1.0) - backgroundVideoScale) * 0.5;
-        vec4 video = texture2D(backgroundVideo, bs);
+        vec4 video = texture(backgroundVideo, bs);
 
-        gl_FragColor = (tex.a < range) ? tex : vec4(0.0);
         float alpha = tex.a > 0.0 ? tex.a < 0.015 ? 0.0 : (tex.a < 0.0350 ? 0.3 : 1.0) : 1.0;
         vec4 background = vec4(0.0);
         if (tex.a == 1.0) {
@@ -507,7 +503,7 @@ class DepthToColorSyncRender {
         background = backgroundMode == 2.0 ? video : background;
         alpha = backgroundMode == 0.0 ? 1.0 : tex.a > range ? 0.0 : alpha;
         // Square the RGB values to revert noHolesPixel's gamma approximation.
-        gl_FragColor = mix(background, vec4(tex.rgb * tex.rgb, 1.0), alpha);
+        fragColor = mix(background, vec4(tex.rgb * tex.rgb, 1.0), alpha);
       }`; 
 
     function createProgram(gl, vs, ps) {
@@ -665,9 +661,7 @@ class DepthToColorSyncRender {
     gl.useProgram(noHoles);
 
     noHoles.sDepth = gl.getUniformLocation(noHoles, "sDepth");
-    noHoles.sPreviousDepth = gl.getUniformLocation(noHoles, "sPreviousDepth");
     noHoles.sColor = gl.getUniformLocation(noHoles, "sColor");
-    noHoles.sPreviousBackground = gl.getUniformLocation(noHoles, "sPreviousBackground");
 
     gl.uniform3f(gl.getUniformLocation(noHoles, 'ddDepth'), 5 / width, 5 / height, 0);
     gl.uniform3f(gl.getUniformLocation(noHoles, 'dd'), 1 / color.w, 1 / color.h, 0);
@@ -697,7 +691,6 @@ class DepthToColorSyncRender {
     gl.uniform2f(gl.getUniformLocation(render, "backgroundVideoScale"), 
         (textures.backgroundVideo.h / color.h) / (textures.backgroundVideo.w / color.w) , 1.0);
     render.backgroundMode = gl.getUniformLocation(render, "backgroundMode");    
-    render.sBackground = gl.getUniformLocation(render, "sBackground");
   }
 
   // it is loaded externally.
