@@ -216,7 +216,7 @@ class DepthToColorSyncRender {
       }
 
       void main(){
-        fragColor = texture(sColor, t);
+        vec4 sColorVal = texture(sColor, t);
         // Get the depth for color pixel.
         vec4 colorPos = colorDeproject(t, 0.5);
         vec4 depthPos = colorToDepth * colorPos;
@@ -237,7 +237,7 @@ class DepthToColorSyncRender {
         // z = min(z, z_around);
         z = z_around < z ? z_around : z;
 
-        vec4 backColor = vec4(fragColor.rgb, z);
+        vec4 backColor = vec4(sColorVal.rgb, z);
         backgroundColor = backColor;
 
         // TODO: use previous depth frame to get depth value if not defined
@@ -252,13 +252,13 @@ class DepthToColorSyncRender {
         
         // TODO: use background map to fix edges.
         /*
-        vec4 distN = normalizeRG(fragColor) - normalizeRG(backColor);
-        vec4 dist = fragColor - backColor;
+        vec4 distN = normalizeRG(sColorVal) - normalizeRG(backColor);
+        vec4 dist = sColorVal - backColor;
         z = (z == 0.0 && dot(distN.rgb, distN.rgb) < 0.003 &&
             dot(dist.rgb, dist.rgb) < 0.008 && backColor.a > 0.9) ? backColor.a : z;
         z = (z > 0.95) ? 0.95 : z;
         */
-        fragColor.rgb = sqrt(fragColor.rgb); // gamma correction aproximation.
+        fragColor.rgb = sqrt(sColorVal.rgb); // gamma correction aproximation.
         fragColor.a = z;
       }`;
 
