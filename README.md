@@ -23,7 +23,7 @@
 <td align="center" valign="center">
 <img src="backgroundremoval.gif" alt="backgroundremoval.gif is not yet loaded."/>
 <br />
-<p>Simple background removal implemented as flood-fill of background color to similarly colored pixels. Works only with simple backgrounds - e.g. room walls on the demo gif. Check the <a href="https://01.org/zh/node/28902">tutorial article</a> and <a href="https://intel.github.io/depth-camera-web-demo/depthdemo.html">run live demo</a>.</p>
+<p>Simple background removal implemented as flood-fill of background color to similarly colored pixels. Works only with simple backgrounds - e.g. room walls on the demo gif. Check the <a href="https://01.org/node/28902">tutorial article</a> and <a href="https://intel.github.io/depth-camera-web-demo/depthdemo.html">run live demo</a>.</p>
 </td>
 <td align="center" valign="center">
 <img src="typing_in_the_air/typing_in_the_air.gif" alt="typing_in_the_air.gif is not yet loaded."/>
@@ -35,12 +35,12 @@
 <td align="center" valign="center">
 <img src="https://github.com/01org/depthcamera-pointcloud-web-demo/raw/master/recording.gif" alt="https://github.com/01org/depthcamera-pointcloud-web-demo/raw/master/recording.gif is not yet loaded." style="width:362px;"/>
 <br />
-<p>3D point cloud rendering demo shows how to render and synchronize depth and color video on GPU. Check the <a href="https://01.org/zh/node/10446">tutorial article</a> and <a href="https://intel.github.io/depthcamera-pointcloud-web-demo/">run live demo</a>.</p>
+<p>3D point cloud rendering demo shows how to render and synchronize depth and color video on GPU. Check the <a href="https://01.org/node/10446">tutorial article</a> and <a href="https://intel.github.io/depthcamera-pointcloud-web-demo/">run live demo</a>.</p>
 </td>
 <td align="center" valign="center">
 <img src="how_the_demo_looks.gif" alt="how_the_demo_looks.gif is not yet loaded." style="height:400px;width:452px;"/>
 <br />
-<p>HTML5 Depth Capture tutorial shows how to access depth stream, check the <a href="https://01.org/zh/node/5101">tutorial article</a> and <a href="https://intel.github.io/depth-camera-web-demo/depthdemo.html">run live demo</a>.</p>
+<p>HTML5 Depth Capture tutorial shows how to access depth stream, check the <a href="https://01.org/node/5101">tutorial article</a> and <a href="https://intel.github.io/depth-camera-web-demo/depthdemo.html">run live demo</a>.</p>
 </td>
 </tr>
 </table>
@@ -55,11 +55,11 @@ Senz3D) or R200,
 These are the constraints of current implementation. The plan is to support other depth cameras and OSX and Android, too.
 
 ## Articles related to the demos:
-* [Depth Camera Capture in HTML5](https://01.org/zh/node/5101),
+* [Depth Camera Capture in HTML5](https://01.org/node/5101),
 * [Typing in the air using depth camera, Chrome, JavaScript, and WebGL transform feedback](https://software.intel.com/en-us/blogs/2017/06/22/tutorial-typing-in-the-air-using-depth-camera-chrome-javascript-and-webgl-transform)
-* [AR marker detection on GPU using WebGL](https://01.org/zh/node/26012)
-* [Background removal with Intel® RealSense™ Depth Camera, WebRTC*, and WebGL*](https://01.org/zh/node/28902)
-* [Background removal using TensorFlow.js](https://01.org/zh/node/29971)
+* [AR marker detection on GPU using WebGL](https://01.org/node/26012)
+* [Background removal with Intel® RealSense™ Depth Camera, WebRTC*, and WebGL*](https://01.org/node/28902)
+* [Background removal using TensorFlow.js](https://01.org/node/29971)
 
 
 
